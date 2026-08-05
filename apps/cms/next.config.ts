@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/",
-        destination: "/site-dist/index.html",
+        destination: "/api/cms/site",
       },
       {
         source: "/assets/:path*",
@@ -48,6 +48,10 @@ const nextConfig: NextConfig = {
       {
         source: "/cms/preview",
         destination: "/api/cms/preview",
+      },
+      {
+        source: "/cms/site",
+        destination: "/api/cms/site",
       },
       {
         source: "/uploads/:path*",

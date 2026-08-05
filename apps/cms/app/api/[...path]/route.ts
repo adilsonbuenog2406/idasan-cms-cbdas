@@ -237,12 +237,18 @@ async function handleEditorSave(request: Request) {
       : undefined;
 
   try {
-    await saveLanding({
+    const saved = await saveLanding({
       html: payload.html,
       css: payload.css,
       mode: payload.mode,
       siteCssHref,
       renderedHtml: renderDocument(payload.html, payload.css, siteCssHref),
+    });
+
+    return Response.json({
+      ok: true,
+      revisionId: saved.revisionId,
+      updatedAt: saved.updatedAt,
     });
   } catch (error) {
     console.error("CMS_SAVE_FAILED", error);
@@ -255,8 +261,6 @@ async function handleEditorSave(request: Request) {
       { status: 500 },
     );
   }
-
-  return Response.json({ ok: true });
 }
 
 async function handleEditorUpload(request: Request) {
@@ -332,6 +336,44 @@ async function handlePreviewGet() {
   }
 }
 
+async function handlePublicSiteGet() {
+  try {
+    const html = await readPublishedLandingHtml();
+
+    return new Response(html, {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+      },
+    });
+  } catch {
+    try {
+      const siteDistIndex = await readFile(
+        path.resolve(process.cwd(), "public/site-dist/index.html"),
+        "utf8",
+      );
+
+      return new Response(siteDistIndex, {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "text/html; charset=utf-8",
+        },
+      });
+    } catch {
+      return new Response(
+        "<!doctype html><html lang=\"pt-BR\"><body style=\"font-family:Montserrat,sans-serif;padding:2rem;color:#10245f\"><p>Site ainda nao disponivel. Salve uma versao no editor ou execute pnpm build:cms.</p></body></html>",
+        {
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "text/html; charset=utf-8",
+          },
+          status: 404,
+        },
+      );
+    }
+  }
+}
+
 async function handleUploadGet(segments: string[]) {
   const requestedPath = segments.join("/");
 
@@ -359,6 +401,10 @@ export async function GET(_request: Request, context: ApiRouteContext) {
 
   if (key === "cms/preview") {
     return handlePreviewGet();
+  }
+
+  if (key === "cms/site") {
+    return handlePublicSiteGet();
   }
 
   if (segments[0] === "cms" && segments[1] === "publish") {

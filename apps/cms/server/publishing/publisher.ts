@@ -24,6 +24,7 @@ import { runHealthCheck } from "./health-check";
 import { getDeploymentTmpDir } from "./paths";
 import { logDeploymentEvent } from "./logger";
 import { DeploymentError, type DeploymentErrorCode } from "./types";
+import { getCurrentLandingRevisionId } from "../cms-storage";
 
 function getErrorCode(error: unknown): DeploymentErrorCode {
   if (error instanceof DeploymentError) {
@@ -108,6 +109,14 @@ export async function executeDeployment(deploymentId: string) {
 
     await updateDeploymentRecord(deploymentId, "building");
     logDeploymentEvent({ deploymentId, userId, stage: "building", status: "building" });
+
+    const revisionId = await getCurrentLandingRevisionId();
+    if (revisionId) {
+      await updateDeploymentRecord(deploymentId, "building", {
+        warning: `editor_revision:${revisionId}`,
+      });
+    }
+
     const release = await buildRelease(deploymentId);
 
     await updateDeploymentRecord(deploymentId, "validating", {

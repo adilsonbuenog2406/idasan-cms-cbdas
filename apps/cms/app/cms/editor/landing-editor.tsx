@@ -2169,7 +2169,10 @@ export default function LandingEditor({
           },
           body: JSON.stringify(project),
         });
-        const payload = (await response.json().catch(() => ({}))) as { error?: unknown };
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: unknown;
+          revisionId?: unknown;
+        };
 
         if (!response.ok) {
           throw new Error(
@@ -2180,6 +2183,15 @@ export default function LandingEditor({
         }
 
         window.localStorage.removeItem(draftKey);
+
+        const revisionId =
+          typeof payload.revisionId === "number"
+            ? payload.revisionId
+            : typeof payload.revisionId === "string" && /^\d+$/.test(payload.revisionId)
+              ? Number(payload.revisionId)
+              : null;
+
+        return { revisionId };
       };
 
       editor.Panels.addButton("options", [
@@ -2190,8 +2202,12 @@ export default function LandingEditor({
           command: async () => {
             try {
               setStatus("Salvando versao do site...");
-              await saveCurrentEditor();
-              setStatus("Versao do site salva e pronta para publicar.");
+              const saved = await saveCurrentEditor();
+              setStatus(
+                saved.revisionId
+                  ? `Versao ${saved.revisionId} salva — ativa em / e pronta para publicar.`
+                  : "Versao do site salva — ativa em / e pronta para publicar.",
+              );
             } catch (error) {
               setStatus(
                 error instanceof Error ? error.message : "Nao foi possivel salvar a versao do site.",
@@ -2214,8 +2230,12 @@ export default function LandingEditor({
           command: async () => {
             try {
               setStatus("Salvando versao do site antes de publicar...");
-              await saveCurrentEditor();
-              setStatus("Iniciando publicacao SFTP...");
+              const saved = await saveCurrentEditor();
+              setStatus(
+                saved.revisionId
+                  ? `Versao ${saved.revisionId} salva. Iniciando publicacao SFTP...`
+                  : "Iniciando publicacao SFTP...",
+              );
               await fetch("/cms/session/refresh", {
                 method: "POST",
                 credentials: "same-origin",

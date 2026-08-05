@@ -34,6 +34,7 @@ type CmsEditorCurrentRow = {
   site_css_href: string | null;
   rendered_html?: string;
   updated_at: string | null;
+  last_revision_id?: number | null;
 };
 
 type ReadCurrentLandingOptions = {
@@ -284,7 +285,7 @@ async function saveLandingToDatabase(supabase: SupabaseClient, input: SaveLandin
 
   if (revisionError) {
     if (isMissingCmsDatabaseSchema(revisionError)) {
-      return false;
+      return null;
     }
 
     throw revisionError;
@@ -309,13 +310,16 @@ async function saveLandingToDatabase(supabase: SupabaseClient, input: SaveLandin
 
   if (currentError) {
     if (isMissingCmsDatabaseSchema(currentError)) {
-      return false;
+      return null;
     }
 
     throw currentError;
   }
 
-  return true;
+  return {
+    revisionId: typeof revision.id === "number" ? revision.id : Number(revision.id),
+    updatedAt,
+  };
 }
 
 async function readCurrentLandingFromDatabase(
@@ -402,10 +406,16 @@ function requiresPersistentCmsStorage() {
   return process.env.CMS_REQUIRE_PERSISTENT_STORAGE === "true" || Boolean(process.env.VERCEL);
 }
 
-export async function saveLanding(input: SaveLandingInput) {
+export type SaveLandingResult = {
+  revisionId: number | null;
+  updatedAt: string;
+};
+
+export async function saveLanding(input: SaveLandingInput): Promise<SaveLandingResult> {
   const supabase = getSupabaseAdmin();
   clearSavedProjectJsonCache();
-  const projectJson = toProjectJsonFromInput(input, new Date().toISOString());
+  const updatedAt = new Date().toISOString();
+  const projectJson = toProjectJsonFromInput(input, updatedAt);
 
   if (supabase) {
     const savedToDatabase = await saveLandingToDatabase(supabase, input);
@@ -425,7 +435,10 @@ export async function saveLanding(input: SaveLandingInput) {
     }
 
     rememberSavedProjectJson(projectJson);
-    return;
+    return {
+      revisionId: savedToDatabase?.revisionId ?? null,
+      updatedAt: savedToDatabase?.updatedAt ?? updatedAt,
+    };
   }
 
   if (requiresPersistentCmsStorage()) {
@@ -440,6 +453,10 @@ export async function saveLanding(input: SaveLandingInput) {
     writeFile(publishedLandingPath, input.renderedHtml, "utf8"),
   ]);
   rememberSavedProjectJson(projectJson);
+  return {
+    revisionId: null,
+    updatedAt,
+  };
 }
 
 export async function readSavedProjectJson() {
@@ -525,6 +542,30 @@ export async function readPublishedLandingHtml() {
   }
 
   return readFile(publishedLandingPath, "utf8");
+}
+
+export async function getCurrentLandingRevisionId() {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("cms_editor_current")
+      .select("last_revision_id")
+      .eq("document_key", editorDocumentKey)
+      .maybeSingle<{ last_revision_id: number | null }>();
+
+    if (error || data?.last_revision_id == null) {
+      return null;
+    }
+
+    return Number(data.last_revision_id);
+  } catch {
+    return null;
+  }
 }
 
 export async function uploadEditorImage(file: File) {
