@@ -5,9 +5,49 @@
   "buildCommand": "pnpm build",
   "outputDirectory": null,
   "rewrites": [
-    { "source": "/", "destination": "/site-dist/index.html" },
-    { "source": "/assets/:path*", "destination": "/site-dist/assets/:path*" },
-    { "source": "/logodark.webp", "destination": "/site-dist/logodark.webp" },
-    { "source": "/tailwind-browser.js", "destination": "/site-dist/tailwind-browser.js" }
+    {
+      "source": "/",
+      "destination": "/site-dist/index.html"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "/site-dist/assets/:path*"
+    },
+    {
+      "source": "/logodark.webp",
+      "destination": "/site-dist/logodark.webp"
+    },
+    {
+      "source": "/tailwind-browser.js",
+      "destination": "/site-dist/tailwind-browser.js"
+    },
+    {
+      "source": "/cms/login",
+      "destination": "/api/cms/login"
+    },
+    {
+      "source": "/cms/logout",
+      "destination": "/api/cms/logout"
+    },
+    {
+      "source": "/cms/session/refresh",
+      "destination": "/api/cms/session/refresh"
+    },
+    {
+      "source": "/cms/editor/save",
+      "destination": "/api/cms/editor/save"
+    },
+    {
+      "source": "/cms/editor/upload-image",
+      "destination": "/api/cms/editor/upload-image"
+    },
+    {
+      "source": "/cms/preview",
+      "destination": "/api/cms/preview"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "/api/uploads/:path*"
+    }
   ]
 }

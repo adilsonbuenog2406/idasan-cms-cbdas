@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { Eye, FolderOpen, Pencil, SquareArrowOutUpRight } from "lucide-react";
-import { isCmsAuthenticated } from "./_lib/auth";
+import { isCmsAuthenticated } from "../_lib/auth";
 
 const quickActions = [
   {

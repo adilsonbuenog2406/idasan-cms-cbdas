@@ -25,6 +25,34 @@ const nextConfig: NextConfig = {
         source: "/tailwind-browser.js",
         destination: "/site-dist/tailwind-browser.js",
       },
+      {
+        source: "/cms/login",
+        destination: "/api/cms/login",
+      },
+      {
+        source: "/cms/logout",
+        destination: "/api/cms/logout",
+      },
+      {
+        source: "/cms/session/refresh",
+        destination: "/api/cms/session/refresh",
+      },
+      {
+        source: "/cms/editor/save",
+        destination: "/api/cms/editor/save",
+      },
+      {
+        source: "/cms/editor/upload-image",
+        destination: "/api/cms/editor/upload-image",
+      },
+      {
+        source: "/cms/preview",
+        destination: "/api/cms/preview",
+      },
+      {
+        source: "/uploads/:path*",
+        destination: "/api/uploads/:path*",
+      },
     ];
   },
 };

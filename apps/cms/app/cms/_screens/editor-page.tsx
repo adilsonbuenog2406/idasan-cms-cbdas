@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { redirect } from "next/navigation";
 import { isCmsAuthenticated } from "../_lib/auth";
-import LandingEditor from "./landing-editor";
+import LandingEditor from "../editor/landing-editor";
 import { readSavedProjectJson } from "@/server/cms-storage";
 
 const siteIndexPath = path.resolve(process.cwd(), "public/site-dist/index.html");

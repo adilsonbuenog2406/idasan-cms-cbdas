@@ -10,7 +10,7 @@ import {
   type SiteDistFile,
   type SiteDistManifest,
 } from "../_lib/site-dist";
-import PublishPanel from "./publish-panel";
+import PublishPanel from "../publicacao/publish-panel";
 import { getDeploymentHistory } from "@/server/publishing/publisher";
 
 export const dynamic = "force-dynamic";
