@@ -16,14 +16,14 @@ export type Speaker = {
   description?: string;
   image: string | null;
   imagePosition?: string;
+  imageScale?: number;
   usesFallbackImage: boolean;
 };
 
-type SpeakerSeed = Pick<Speaker, 'name' | 'role' | 'description' | 'imagePosition'>;
+type SpeakerSeed = Pick<Speaker, 'name' | 'role' | 'description' | 'imagePosition' | 'imageScale'>;
 
 /** Palestrantes ocultos temporariamente na seção pública (cadastro e fotos permanecem). */
 const hiddenSpeakerNames = new Set([
-  'Alessandra Vieira',
   'Ana Capdeville',
   'Luiz Dellore',
   'Otavio Venturini',
@@ -139,12 +139,16 @@ const speakerCatalog = [
     role: 'Vice-Presidente do IDASAN',
   },
   {
-    name: 'Alessandra Vieira',
+    name: 'Alessandra Vieira Massa',
     role: 'Corregedora do BRB',
   },
   {
     name: 'Aline Cavalcante dos Reis Silva',
     role: 'Corregedora do Ministério dos Povos Indígenas',
+  },
+  {
+    name: 'Aline Osório',
+    role: 'Secretária-Geral do Supremo Tribunal Federal',
   },
   {
     name: 'Ana Capdeville',
@@ -165,6 +169,10 @@ const speakerCatalog = [
   {
     name: 'André Janjácomo Rosilho',
     role: 'Professor da FGV Direito SP',
+  },
+  {
+    name: 'Angélica Petian',
+    role: 'Pós-doutora em Direito. Especialista em Infraestrutura',
   },
   {
     name: 'Ana Frazão',
@@ -210,6 +218,7 @@ const speakerCatalog = [
   {
     name: 'Diogo Alves Verri Garcia de Souza',
     role: 'Advogado e Professor',
+    imagePosition: 'center 32%',
   },
   {
     name: 'Diovane Franco Rodrigues',
@@ -230,7 +239,7 @@ const speakerCatalog = [
   {
     name: 'Flávia Corrêa Azeredo de Freitas',
     role: 'Procuradora Federal - Doutora em Direito do Estado (USP)',
-    imagePosition: 'center top',
+    imagePosition: 'center 18%',
   },
   {
     name: 'Francisco Zardo',
@@ -241,6 +250,11 @@ const speakerCatalog = [
     role: 'Mestre em Direito. Advogado no BMA',
   },
   {
+    name: 'Gustavo Binenbojm',
+    role:
+      'Professor Titular da UERJ, sócio do Binenbojm, Cyrino, Koatz & Voronoff Advogados',
+  },
+  {
     name: 'Gustavo Henrique Justino de Oliveira',
     role: 'Prof. Doutor de Direito Administrativo - USP e IDP Brasília. Advogado e consultor jurídico',
   },
@@ -249,12 +263,36 @@ const speakerCatalog = [
     role: 'Advogada',
   },
   {
+    name: 'Ilan Presser',
+    role: 'Juiz federal',
+  },
+  {
+    name: 'Inês Coimbra',
+    role: 'Procuradora-Geral do Estado de São Paulo (PGE-SP)',
+  },
+  {
+    name: 'João Laudo de Camargo',
+    role: 'Sócio do Bocater Advogados',
+    imagePosition: 'center 22%',
+  },
+  {
     name: 'Jorge Ulisses Jacoby Fernandes',
     role: 'Advogado e Jornalista',
   },
   {
     name: 'José Guilherme Berman',
     role: 'Advogado e professor da PUC-Rio',
+  },
+  {
+    name: 'José Roberto Pimenta Oliveira',
+    role: 'Doutor em Direito do Estado pela PUC-SP e professor de Direito Administrativo da PUC-SP',
+    imagePosition: 'center 22%',
+    imageScale: 1.45,
+  },
+  {
+    name: 'Júlio Marcelo de Oliveira',
+    role:
+      'Jurista brasileiro e Procurador do Ministério Público junto ao Tribunal de Contas da União',
   },
   {
     name: 'Juliano Heinen',
@@ -275,6 +313,7 @@ const speakerCatalog = [
   {
     name: 'Luiz Magno P Bastos Jr',
     role: 'Advogado e Professor (UNIVALI/SC)',
+    imagePosition: 'center 18%',
   },
   {
     name: 'Marcos Gerhardt Lindenmayer',
@@ -293,7 +332,11 @@ const speakerCatalog = [
     role: 'Advogada e Doutora em Direito Público',
   },
   {
-    name: 'Matheus Alves Moreira da Silva',
+    name: 'Mariana de Siqueira',
+    role: 'Advogada, professora da UFRN. Doutora em Direito Público pela UFPE.',
+  },
+  {
+    name: 'Matheus Moreira',
     role: 'Advogado e Professor',
   },
   {
@@ -305,8 +348,14 @@ const speakerCatalog = [
     role: 'Assessor de Ministro na Controladoria-Geral da União (CGU). Professor',
   },
   {
+    name: 'Paulo Modesto',
+    role:
+      'Secretário Nacional de Assuntos Legislativos. Professor de Dir. Adm (UFBA). Presidente do Instituto Brasileiro de Direito Público',
+  },
+  {
     name: 'Cristiana Fortini',
     role: 'Professora da UFMG',
+    imagePosition: 'center 16%',
   },
   {
     name: 'Michael de Jesus',
@@ -338,11 +387,16 @@ const speakerCatalog = [
   },
   {
     name: 'Sandro Lúcio Dezan',
-    role: 'Uma Teoria do Direito Público Sancionador',
+    role: 'Advogado',
+    description: 'Uma Teoria do Direito Público Sancionador para Sandro Lúcio Dezan',
   },
   {
     name: 'Sarah Merçon-Vargas',
     role: 'Advogada',
+  },
+  {
+    name: 'Suzana Silva Rodrigues',
+    role: 'Chefe de Gabinete da Anatel',
   },
   {
     name: 'Thalita Abdala Aris',
@@ -357,8 +411,18 @@ const speakerCatalog = [
     role: 'Procuradora Legislativa',
   },
   {
+    name: 'Vanir Fridriczewski',
+    role:
+      'Doutor e Pós Doutor pela Universidade de Salamanca, na Espanha. Advogado da União e Assessor de Ministro no STF. Professor Universitário',
+    imagePosition: 'center 18%',
+  },
+  {
     name: 'Vera Lúcia Santana Araújo',
     role: 'Advogada',
+  },
+  {
+    name: 'Vinícius Marques de Carvalho',
+    role: 'Ministro da Controladoria-Geral da União do Brasil',
   },
   {
     name: 'Vitor Hugo Jacob Covolato',
@@ -452,24 +516,41 @@ const candidatePhotoAssignments = speakerPhotoEntries
 
 const preferredPhotoFileNameBySpeaker = new Map<string, string>([
   ['Alice Voronoff', 'alice voronoff.png'],
+  ['Aline Osório', 'alineosorio.webp'],
   ['Ana Clara Barcessat', 'A84AD0BF-C0E5-403E-9820-42938046BA6D - Ana Clara Barcessat.jpeg'],
   ['Ana Frazão', 'draanafrazao.png'],
+  ['Ana Margareth Moreira Mendes Cosenza', 'Ana Mendes Consenza.png'],
+  ['Angélica Petian', 'angelicapetian.JPG'],
   ['Claudia Braga Tomelin', 'claudiabragatomelin.png'],
   ['Antonio Rodrigo Machado', 'Antonio Rodrigo Machado.png'],
   ['Carmen Lúcia', 'foto-diego-bresani---minist.webp'],
   ['Christianne de Carvalho Stroppa', 'Christianne de Carvalho Stroppa.png'],
   ['Cristiana Fortini', 'Cristiana Fortini.png'],
   ['Fábio Eduardo Galvão Ferreira Costa', 'WhatsApp Image 2026-06-17 at 17.39.40 - Fabio Galvao.jpeg'],
+  ['Gustavo Binenbojm', 'gustavobinenbojm.jpg'],
   ['Gustavo Henrique Justino de Oliveira', '06808AEB-A1E6-4E2C-9BE2-A24B66F88C27 - Gustavo Henrique Justino de Oliveira.jpeg'],
+  ['Inês Coimbra', 'Inescoimbra.webp'],
   ['Juliano Heinen', 'Foto - Juliano H.jpg'],
+  ['Júlio Marcelo de Oliveira', 'juliomarcelodeoliveira.jpg'],
   ['José Guilherme Berman', 'joseguilhermeberman.png'],
+  ['José Roberto Pimenta Oliveira', 'joserobertopimenta.jpeg'],
+  ['Ilan Presser', 'ilanpressser.jpg'],
+  ['Isabella Macedo Torres', 'MMN_8928 - Isabella.jpg'],
+  ['João Laudo de Camargo', 'Joao-Laudo-de-Camargo.jpg'],
   ['Marcelo Costenaro Cavali', 'foto divulgação - MARCELO COSTENARO CAVALI.jpeg'],
+  ['Marcos Gerhardt Lindenmayer', 'WhatsApp Image 2026-01-15 at 09.30.25 - Marcos Lindenmayer.jpeg'],
+  ['Mariana de Siqueira', 'WhatsApp Image 2026-06-17 at 06.27.18 - Mariana Siqueira.jpeg'],
+  ['Matheus Moreira', 'WhatsApp Image 2026-03-16 at 14.47.48 - Matheus Alves Moreira da Silva.jpeg'],
   ['Michael de Jesus', '059_Michael_Boxfotografia_220920 - Michael de Jesus.jpeg'],
   ['Pablo Ademir de Souza', 'Pablo Ademir de Souza1.png'],
+  ['Paulo Modesto', 'paulomodesto.jpg'],
   ['Rodrigo Pironti', 'IMG_6267 - Pironti.jpeg'],
   ['Sandro Lúcio Dezan', 'Foto Divulgação - Sandro Dezan - Sandro Lucio Dezan.jpeg'],
+  ['Suzana Silva Rodrigues', 'suzanasilva.jpeg'],
   ['Renata Victer', 'WhatsApp Image 2026-04-01 at 19.04.22 (1) - Renata Maccacchero Victer.jpeg'],
   ['Thalita Abdala Aris', 'Thalita Abdala Aris.png'],
+  ['Vanir Fridriczewski', 'vanirfidriczewski.JPG'],
+  ['Vinícius Marques de Carvalho', 'MinistroViniciusdeCarvalho.jpg'],
 ]);
 
 const speakerImagesByName = candidatePhotoAssignments.reduce<Map<string, string>>((accumulator, assignment) => {
@@ -508,7 +589,7 @@ preferredPhotoFileNameBySpeaker.forEach((fileName, speakerName) => {
   }
 });
 
-speakerImagesByName.set('Alessandra Vieira', alessandraVieiraPhoto);
+speakerImagesByName.set('Alessandra Vieira Massa', alessandraVieiraPhoto);
 speakerImagesByName.set('Ana Capdeville', anaCapdevillePhoto);
 speakerImagesByName.set('Keity Saboya', keitySaboyaPhoto);
 speakerImagesByName.set('Luiz Dellore', luizDellorePhoto);
@@ -534,5 +615,9 @@ export const speakers: Speaker[] = [...speakerCatalog]
       ...speaker,
     };
   });
+
+const speakersByName = new Map(speakers.map((speaker) => [speaker.name, speaker]));
+
+export const getSpeakerByName = (name: string): Speaker | undefined => speakersByName.get(name);
 
 export const speakerCount = speakers.length;

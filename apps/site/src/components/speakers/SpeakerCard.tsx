@@ -58,6 +58,10 @@ export const SpeakerCard: React.FC<SpeakerCardProps> = ({ speaker, index, contai
             )}
             style={{
               objectPosition: isFallbackImage ? 'center center' : speaker.imagePosition ?? 'center top',
+              transform: speaker.imageScale ? `scale(${speaker.imageScale})` : undefined,
+              transformOrigin: isFallbackImage
+                ? 'center center'
+                : speaker.imagePosition ?? 'center top',
             }}
             onError={() => setHasImageError(true)}
           />

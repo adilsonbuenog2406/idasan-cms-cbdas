@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const siteAssetsDir = path.resolve(process.cwd(), "public/site-dist/assets");
+const localAssetsDir = path.resolve(process.cwd(), "app/assets/[...path]");
+const publicAssetsDir = path.resolve(process.cwd(), "public/assets");
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -40,6 +42,33 @@ export async function GET(_request: Request, context: AssetRouteContext) {
       },
     });
   } catch {
+    for (const fallbackAssetsDir of [localAssetsDir, publicAssetsDir]) {
+      const localFilePath = path.resolve(fallbackAssetsDir, requestedPath);
+
+      if (!localFilePath.startsWith(`${fallbackAssetsDir}${path.sep}`)) {
+        continue;
+      }
+
+      try {
+        const file = await readFile(localFilePath);
+        const extension = path.extname(localFilePath).toLowerCase();
+        const contentType = contentTypes[extension];
+
+        if (!contentType) {
+          continue;
+        }
+
+        return new Response(file, {
+          headers: {
+            "cache-control": "public, max-age=31536000, immutable",
+            "content-type": contentType,
+          },
+        });
+      } catch {
+        continue;
+      }
+    }
+
     return new Response("Not found", { status: 404 });
   }
 }

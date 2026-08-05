@@ -41,7 +41,6 @@ export const WorkshopCard = memo(({ workshop }: WorkshopCardProps) => (
       workshop.participants &&
       workshop.participants.length > 0 && (
       <ParticipantRoster
-        label="Participantes da oficina"
         participants={workshop.participants}
         rosterId={workshop.id}
         className="mt-5"

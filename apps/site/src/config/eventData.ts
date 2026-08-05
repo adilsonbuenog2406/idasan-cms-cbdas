@@ -1,12 +1,14 @@
 import placeholderProfile from '../assets/placeholder-profile.svg';
 import idasanRio from '../assets/idasanrio.webp';
 import idasanSampa from '../assets/idasansampa.webp';
+import { getSpeakerByName } from '../data/speakers';
 
 export type ParticipantProfile = {
   name: string;
   surname: string;
   role: string;
   photo: string;
+  photoPosition?: string;
 };
 
 export type ScheduleEventType =
@@ -60,13 +62,19 @@ export type RegistrationDiscountStage = {
   benefit: string;
 };
 
-const createPlaceholderParticipants = (): ParticipantProfile[] =>
-  Array.from({ length: 4 }, () => ({
-    name: '[NOME]',
-    surname: '[SOBRENOME]',
-    role: '[CARGO]',
-    photo: placeholderProfile,
-  }));
+const participantFromCatalog = (catalogName: string, role?: string): ParticipantProfile => {
+  const speaker = getSpeakerByName(catalogName);
+  const parts = catalogName.trim().split(/\s+/);
+  const [firstName = catalogName, ...surnameParts] = parts;
+
+  return {
+    name: firstName,
+    surname: surnameParts.join(' '),
+    role: role ?? speaker?.role ?? 'Palestrante',
+    photo: speaker?.image ?? placeholderProfile,
+    photoPosition: speaker?.imagePosition,
+  };
+};
 
 const schedule: ScheduleDay[] = [
   {
@@ -75,39 +83,88 @@ const schedule: ScheduleDay[] = [
     events: [
       { time: "08h30 – 09h00", title: "Credenciamento", type: "service" },
       { time: "09h00", title: "Abertura", type: "ceremony" },
-      { time: "09h30", title: "Conferência de abertura", type: "conference" },
+      {
+        time: "09h30",
+        title:
+          "Conferência de abertura — Gênero e ética na democracia: como isso impacta o Direito Administrativo Sancionador?",
+        type: "conference",
+        speakers: [
+          participantFromCatalog('Carmen Lúcia', 'Autoridade — Ministra do STF'),
+        ],
+      },
       {
         time: "10h – 11h15",
         title: "Painel 1: Tribunais de Contas, medidas cautelares, dever de ressarcimento e sanções",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog(
+            'Ana Luiza Queiroz Melo Jacoby Fernandes',
+            'Presidente da mesa',
+          ),
+          participantFromCatalog('Júlio Marcelo de Oliveira', 'Palestrantee'),
+          participantFromCatalog('Flávia Corrêa Azeredo de Freitas', 'Palestrante'),
+          participantFromCatalog('André Janjácomo Rosilho', 'Palestrante'),
+        ],
       },
       {
         time: "11h15 - 12h30",
         title: "Painel 2: DAS e a lei de inelegibilidade",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog('Laís Azevedo Vila-Nova de Carvalho', 'Presidente da mesa'),
+          participantFromCatalog('Vera Lúcia Santana Araújo', 'Palestrante'),
+          participantFromCatalog('Aline Osório', 'Palestrante'),
+          participantFromCatalog('Luiz Magno P Bastos Jr', 'Palestrante'),
+        ],
       },
       {
         time: "14h15 – 15h30",
         title: "Painel 3: Empresas estatais: nuances e questões polêmicas de DAS nos 10 anos de Estatuto",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog('Diogo Alves Verri Garcia de Souza', 'Palestrante'),
+          participantFromCatalog('Rafael Wallbach Schwind', 'Palestrante'),
+          participantFromCatalog('Christianne de Carvalho Stroppa', 'Palestrante'),
+          participantFromCatalog('João Laudo de Camargo', 'Palestrante'),
+        ],
       },
       {
         time: "15h45 - 16h30",
         title: "Painel 4: O conflito de interesses na administração pública: infração e julgamento",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog('Pablo Ademir de Souza', 'Presidente da mesa'),
+          participantFromCatalog('Antonio Carlos Vasconcellos Nóbrega', 'Palestrante'),
+          participantFromCatalog('Cristiana Fortini', 'Palestrante'),
+          participantFromCatalog('Vanir Fridriczewski', 'Palestrante'),
+        ],
       },
       { time: "16h30 – 16h50", title: "Coffee Break", type: "break" },
-      { time: "17h00 - 17h30", title: "IDASANcast: garantias no processo administrativo sancionador", type: "special" },
+      {
+        time: "17h00 - 17h30",
+        title: "IDASANcast: garantias no processo administrativo sancionador",
+        type: "special",
+        speakers: [
+          participantFromCatalog('Thalita Abdala Aris', 'Entrevistadora'),
+          participantFromCatalog(
+            'Gustavo Henrique Justino de Oliveira',
+            'Entrevistado',
+          ),
+        ],
+      },
       {
         time: "17h30 - 18h30",
         title: "Conferência especial: Reforma administrativa e responsabilização: gestão por resultados, transformação digital e efeitos no sistema sancionador",
         type: "conference",
+        speakers: [
+          participantFromCatalog('Paulo Modesto'),
+        ],
       },
-      { time: "18h30 - 19h", title: "Lançamentos", type: "ceremony" }
+      {
+        time: "18h30 - 19h",
+        title: "Lançamentos — um coordenador de cada volume",
+        type: "ceremony",
+      },
     ]
   },
   {
@@ -118,25 +175,78 @@ const schedule: ScheduleDay[] = [
         time: "9h - 10h15",
         title: "Painel 5: O papel do DAS na regulação de serviços públicos e incentivo de conformidade",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog('Inês Coimbra'),
+          participantFromCatalog('Gustavo Binenbojm'),
+          participantFromCatalog('Ana Frazão', 'Palestrante'),
+        ],
       },
       {
         time: "10h15 – 11h30",
         title: "Painel 6: DAS na CVM e no Banco Central e o controle externo",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog(
+            'Fábio Eduardo Galvão Ferreira Costa',
+            'Presidente da mesa',
+          ),
+          participantFromCatalog('Maria Isabel do Prado Bocater', 'Palestrante'),
+          participantFromCatalog('Fábio Medina Osório', 'Palestrante'),
+          participantFromCatalog('Renata Victer', 'Palestrante'),
+        ],
       },
-      { time: "11h30 – 12h30", title: "CILADAS Credibilidade institucional e DAS: interdependência entre as instâncias e abuso de poder", type: "special" },
+      {
+        time: "11h30 – 12h30",
+        title:
+          "CILADAS: Credibilidade institucional e DAS: interdependência entre as instâncias e abuso de poder",
+        type: "special",
+        speakers: [
+          participantFromCatalog('Marilene Carneiro Matos', 'Presidente da mesa'),
+          participantFromCatalog('Marcelo Costenaro Cavali', 'Palestrante'),
+          participantFromCatalog('Carlos Nitão', 'Palestrante'),
+          participantFromCatalog('Keity Saboya', 'Palestrante'),
+        ],
+      },
       {
         time: "14h30 - 15h45",
         title: "Painel 7: Governança e integridade pública: aplicação e impacto na atividade sancionatória",
         type: "panel",
-        speakers: createPlaceholderParticipants(),
+        speakers: [
+          participantFromCatalog('José Guilherme Berman', 'Presidente da mesa'),
+          participantFromCatalog('Marcos Gerhardt Lindenmayer', 'Palestrante'),
+          participantFromCatalog('Claudia Braga Tomelin', 'Palestrante'),
+        ],
       },
-      { time: "15h45 – 16h15", title: "Prêmio IDASAN de Ouro ou Notáveis IDASAN Artigos científicos", type: "ceremony" },
+      {
+        time: "15h45 – 16h15",
+        title: "Prêmio IDASAN de Ouro ou Notáveis IDASAN — Artigos científicos (Comissão de Artigos)",
+        type: "ceremony",
+      },
       { time: "16h15 – 16h30", title: "Coffee Break", type: "break" },
-      { time: "16h30 - 17h", title: "Conferência especial: Improbidade e DAS: convergências, prova, prescrição e segurança jurídica", type: "conference" },
-      { time: "17h – 18h", title: "Conferência de encerramento: Precisamos falar de uma lei geral de DAS? Competências federativas e a realidade de Estados e Municípios Sistematização do DAS", type: "conference" }
+      {
+        time: "16h30 - 17h",
+        title: "Conferência especial: Improbidade e DAS: convergências, prova, prescrição e segurança jurídica",
+        type: "conference",
+        speakers: [
+          participantFromCatalog(
+            'Ana Luiza Queiroz Melo Jacoby Fernandes',
+            'Conferencista',
+          ),
+        ],
+      },
+      {
+        time: "17h – 18h",
+        title:
+          "Conferência de encerramento: Precisamos falar de uma lei geral de DAS? Competências federativas e a realidade de Estados e Municípios — Sistematização do DAS",
+        type: "conference",
+        speakers: [
+          participantFromCatalog('Alice Voronoff', 'Conferencista'),
+          participantFromCatalog(
+            'Giovani Trindade Castanheira Fagg Menicucci',
+            'Conferencista',
+          ),
+        ],
+      },
     ]
   }
 ];
@@ -231,25 +341,41 @@ export const eventData = {
           order: 1,
           time: "10h00 - 12h00",
           title: "Oficina 1: Provas digitais e analógicas no DAS: cadeia de custódia, contraditório e standards probatórios",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Aline Cavalcante dos Reis Silva'),
+            participantFromCatalog('Renata Lane'),
+            participantFromCatalog('Antonio Rodrigo Machado'),
+          ],
         },
         {
           order: 2,
           time: "10h00 - 12h00",
           title: "Oficina 2: A prescrição no processo administrativo sancionador: um tema mal resolvido?",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Sarah Merçon-Vargas'),
+            participantFromCatalog('Sandro Lúcio Dezan'),
+            participantFromCatalog('Ariane Shermam Morais Vieira'),
+          ],
         },
         {
           order: 3,
           time: "14h00 - 16h00",
           title: "Oficina 3: Revisão judicial do PAD e súmulas do STJ",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Francisco Zardo'),
+            participantFromCatalog('Mariana de Siqueira'),
+            participantFromCatalog('Ana Margareth Moreira Mendes Cosenza'),
+          ],
         },
         {
           order: 4,
           time: "14h00 - 16h00",
           title: "Oficina 4: Caducidade em concessões",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Juliano Heinen'),
+            participantFromCatalog('Suzana Silva Rodrigues'),
+            participantFromCatalog('Angélica Petian'),
+          ],
         }
       ]
     },
@@ -260,25 +386,52 @@ export const eventData = {
           order: 5,
           time: "09h00 - 10h30",
           title: "Oficina 5: Assédio e repercussões disciplinares: questões relevantes sobre garantias processuais",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Danielly Cristina Araújo Gontijo'),
+            participantFromCatalog('Vládia Pompeu'),
+            participantFromCatalog('Daniel Martins e Avelar'),
+            participantFromCatalog('Michael de Jesus'),
+          ],
         },
         {
           order: 6,
           time: "09h00 - 10h30",
           title: "Oficina 6: Matriz de tipificação e dosimetria na NLLC, motivação e prevenção de nulidades",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Tassiane de Fátima Moraes'),
+            participantFromCatalog('Felipe Dalenogare Alves'),
+            participantFromCatalog('Matheus Moreira'),
+          ],
         },
         {
           order: 7,
-          time: "14h00 - 16h00",
-          title: "Oficina 7: DAS ambiental: questões controvertidas",
-          participants: createPlaceholderParticipants(),
+          time: "10h30 - 12h00",
+          title: "Plenária Glossário DAS IDASAN",
+          participants: [
+            participantFromCatalog('Rafael Wallbach Schwind'),
+            participantFromCatalog('Alessandra Vieira Massa'),
+            participantFromCatalog('Felipe Dalenogare Alves'),
+          ],
         },
         {
           order: 8,
           time: "14h00 - 16h00",
+          title: "Oficina 7: DAS ambiental: questões controvertidas",
+          participants: [
+            participantFromCatalog('Diovane Franco Rodrigues'),
+            participantFromCatalog('Ana Clara Barcessat'),
+            participantFromCatalog('Ilan Presser'),
+            participantFromCatalog('José Roberto Pimenta Oliveira'),
+          ],
+        },
+        {
+          order: 9,
+          time: "14h00 - 16h00",
           title: "Oficina 8: DAS na LGPD: ECA Digital e responsabilidade de plataformas digitais por conteúdo de terceiros (Temas 987 e 533)",
-          participants: createPlaceholderParticipants(),
+          participants: [
+            participantFromCatalog('Isabella Macedo Torres'),
+            participantFromCatalog('Rodrigo Pironti'),
+          ],
         }
       ]
     }
@@ -287,26 +440,9 @@ export const eventData = {
     closingNotice: "Encerramento das inscrições no dia 18/08/2026.",
     batches: [
       {
-        id: "batch2",
-        name: "Lote 2",
-        status: "active",
-        period: "01/07 a 01/08",
-        prices: [
-          { label: "Público Geral", value: "R$ 1.300,00" },
-          { label: "Associados", value: "R$ 650,00" },
-          { label: "Estudantes", value: "R$ 350,00" },
-          { label: "Pós-Graduação", value: "R$ 1.000,00" },
-          { label: "Grupo (10 a 19 inscrições)", value: "R$ 1.170,00" },
-          { label: "Grupo (20 a 29 inscrições)", value: "R$ 1.040,00" },
-          { label: "Grupo (30 a 39 inscrições)", value: "R$ 910,00" },
-          { label: "Grupo (40 a 49 inscrições)", value: "R$ 780,00" },
-          { label: "Grupo (a partir de 50 inscrições)", value: "R$ 650,00" }
-        ]
-      },
-      {
         id: "batch3",
         name: "Lote 3",
-        status: "upcoming",
+        status: "active",
         period: "02/08 a 18/08",
         prices: [
           { label: "Público Geral", value: "R$ 1.500,00" },

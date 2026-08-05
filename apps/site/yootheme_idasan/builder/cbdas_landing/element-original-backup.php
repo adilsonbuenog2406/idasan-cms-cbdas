@@ -57,7 +57,7 @@ return [
         'sponsor_diamond_image' => 'templates/yootheme_idasan/images/cbdas/Diamante.png',
         'sponsor_gold_image' => 'templates/yootheme_idasan/images/cbdas/Ouro.png',
         'sponsor_silver_image' => 'templates/yootheme_idasan/images/cbdas/Prata.png',
-        'sponsor_supporters_image' => 'templates/yootheme_idasan/images/cbdas/Apoiadores (1).png',
+        'sponsor_supporters_image' => 'templates/yootheme_idasan/images/cbdas/apoiadores (2).png',
         'contact_title' => 'Contato',
         'contact_text' => 'O principal fórum nacional dedicado ao estudo, debate e desenvolvimento do Direito Administrativo Sancionador.',
         'contact_email' => 'contato@idasan.com.br',

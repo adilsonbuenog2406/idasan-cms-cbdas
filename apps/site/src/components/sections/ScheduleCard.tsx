@@ -51,11 +51,12 @@ export const ScheduleCard = memo(({ event }: ScheduleCardProps) => (
         )}
 
         {sectionVisibility.blocks.showPanelSpeakers &&
-          event.type === 'panel' &&
+          (event.type === 'panel' ||
+            event.type === 'conference' ||
+            event.type === 'special') &&
           event.speakers &&
           event.speakers.length > 0 && (
           <ParticipantRoster
-            label="Palestrantes do painel"
             participants={event.speakers}
             rosterId={event.id}
             className="mt-4"

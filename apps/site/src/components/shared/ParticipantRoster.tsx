@@ -3,7 +3,7 @@ import type { ParticipantProfile } from '../../config/eventData';
 import { ParticipantItem } from './ParticipantItem';
 
 type ParticipantRosterProps = {
-  label: string;
+  label?: string;
   participants: ParticipantProfile[];
   rosterId: string;
   className?: string;
@@ -37,11 +37,15 @@ export const ParticipantRoster = memo(({
     <div
       className={`${rosterClassName} ${className}`.trim()}
     >
-      <div className="type-eyebrow !text-[0.55rem] text-idasan-blue/70">
-        {label}
-      </div>
+      {label ? (
+        <div className="type-eyebrow !text-[0.55rem] text-idasan-blue/70">
+          {label}
+        </div>
+      ) : null}
 
-      <div className="mt-3 grid gap-2.5 md:grid-cols-2">{participantItems}</div>
+      <div className={`${label ? 'mt-3 ' : ''}grid gap-2.5 md:grid-cols-2`}>
+        {participantItems}
+      </div>
     </div>
   );
 });

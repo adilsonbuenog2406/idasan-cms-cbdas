@@ -35,7 +35,11 @@ export const Registration = () => {
         <SectionTitle title="Inscrições" subtitle="Garanta sua participação" light centered />
 
         <div className="relative z-10 mx-auto mt-2 w-full max-w-4xl">
-          <div className="grid w-full grid-cols-1 justify-items-stretch gap-6 md:grid-cols-2">
+          <div
+            className={`grid w-full grid-cols-1 justify-items-stretch gap-6 ${
+              eventData.registration.batches.length > 1 ? 'md:grid-cols-2' : 'mx-auto max-w-md'
+            }`}
+          >
             {eventData.registration.batches.map((batch, index) => {
               const isActive = batch.status === 'active';
               const isUpcoming = batch.status === 'upcoming';

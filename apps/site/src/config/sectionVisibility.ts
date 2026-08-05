@@ -1,7 +1,7 @@
 export const sectionVisibility = {
   blocks: {
-    showWorkshopParticipants: false,
-    showPanelSpeakers: false,
+    showWorkshopParticipants: true,
+    showPanelSpeakers: true,
   },
   header: {
     showInscricoes: true,

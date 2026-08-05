@@ -1,19 +1,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { readPublishedLandingHtml } from "@/server/cms-storage";
 
 const siteDistDir = path.resolve(process.cwd(), "public/site-dist");
 
 async function renderSiteHtml() {
-  try {
-    return await readPublishedLandingHtml();
-  } catch {
-    return (await readFile(path.join(siteDistDir, "index.html"), "utf8"))
-      .replaceAll('src="./assets/', 'src="/assets/')
-      .replaceAll('href="./assets/', 'href="/assets/')
-      .replaceAll('src="./tailwind-browser.js"', 'src="/tailwind-browser.js"')
-      .replaceAll('href="./logodark.webp"', 'href="/logodark.webp"');
-  }
+  return (await readFile(path.join(siteDistDir, "index.html"), "utf8"))
+    .replaceAll('src="./assets/', 'src="/assets/')
+    .replaceAll('href="./assets/', 'href="/assets/')
+    .replaceAll('src="./tailwind-browser.js"', 'src="/tailwind-browser.js"')
+    .replaceAll('href="./logodark.webp"', 'href="/logodark.webp"');
 }
 
 export async function GET() {
