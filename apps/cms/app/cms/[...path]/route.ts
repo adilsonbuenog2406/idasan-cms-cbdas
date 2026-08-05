@@ -6,6 +6,12 @@ import { redirect } from "next/navigation";
 const sessionCookieName = "cms_session";
 const rootEnvPath = path.resolve(process.cwd(), "../..", ".env");
 
+type AuthRouteContext = {
+  params: Promise<{
+    path: string[];
+  }>;
+};
+
 function parseEnv(content: string) {
   const values: Record<string, string> = {};
 
@@ -54,11 +60,11 @@ async function getExpectedCredentials() {
   }
 }
 
-export function GET() {
+async function handleLoginGet() {
   redirect("/cms");
 }
 
-export async function POST(request: Request) {
+async function handleLoginPost(request: Request) {
   const formData = await request.formData();
   const login = String(formData.get("login") ?? "");
   const password = String(formData.get("password") ?? "");
@@ -77,4 +83,64 @@ export async function POST(request: Request) {
   });
 
   redirect("/cms");
+}
+
+async function handleLogoutPost() {
+  const cookieStore = await cookies();
+
+  cookieStore.delete(sessionCookieName);
+  cookieStore.set(sessionCookieName, "", {
+    expires: new Date(0),
+    path: "/cms",
+  });
+  cookieStore.set(sessionCookieName, "", {
+    expires: new Date(0),
+    path: "/",
+  });
+
+  redirect("/cms");
+}
+
+async function handleSessionRefreshPost() {
+  const cookieStore = await cookies();
+
+  if (cookieStore.get(sessionCookieName)?.value !== "ok") {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  cookieStore.set(sessionCookieName, "ok", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+  });
+
+  return Response.json({ ok: true });
+}
+
+export async function GET(_request: Request, context: AuthRouteContext) {
+  const key = (await context.params).path.join("/");
+
+  if (key === "login") {
+    return handleLoginGet();
+  }
+
+  return new Response("Not found", { status: 404 });
+}
+
+export async function POST(request: Request, context: AuthRouteContext) {
+  const key = (await context.params).path.join("/");
+
+  if (key === "login") {
+    return handleLoginPost(request);
+  }
+
+  if (key === "logout") {
+    return handleLogoutPost();
+  }
+
+  if (key === "session/refresh") {
+    return handleSessionRefreshPost();
+  }
+
+  return Response.json({ error: "Not found" }, { status: 404 });
 }

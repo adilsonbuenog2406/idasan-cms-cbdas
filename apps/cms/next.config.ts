@@ -7,6 +7,26 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(process.cwd(), "../.."),
   },
+  async rewrites() {
+    return [
+      {
+        source: "/",
+        destination: "/site-dist/index.html",
+      },
+      {
+        source: "/assets/:path*",
+        destination: "/site-dist/assets/:path*",
+      },
+      {
+        source: "/logodark.webp",
+        destination: "/site-dist/logodark.webp",
+      },
+      {
+        source: "/tailwind-browser.js",
+        destination: "/site-dist/tailwind-browser.js",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

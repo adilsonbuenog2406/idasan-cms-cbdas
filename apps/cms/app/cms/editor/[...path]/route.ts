@@ -1,7 +1,14 @@
 import { cookies } from "next/headers";
-import { saveLanding } from "@/server/cms-storage";
+import { saveLanding, uploadEditorImage } from "@/server/cms-storage";
 
 const sessionCookieName = "cms_session";
+const maxUploadBytes = 12 * 1024 * 1024;
+
+type EditorRouteContext = {
+  params: Promise<{
+    path: string[];
+  }>;
+};
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,10 +36,20 @@ ${html}
 </html>`;
 }
 
-export async function POST(request: Request) {
+async function requireSession() {
   const cookieStore = await cookies();
 
   if (cookieStore.get(sessionCookieName)?.value !== "ok") {
+    return null;
+  }
+
+  return cookieStore;
+}
+
+async function handleSave(request: Request) {
+  const cookieStore = await requireSession();
+
+  if (!cookieStore) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -85,4 +102,51 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ ok: true });
+}
+
+async function handleUploadImage(request: Request) {
+  if (!(await requireSession())) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const formData = await request.formData();
+  const file = formData.get("file");
+
+  if (!(file instanceof File) || !file.type.startsWith("image/")) {
+    return Response.json({ error: "Envie um arquivo de imagem valido." }, { status: 400 });
+  }
+
+  if (file.size > maxUploadBytes) {
+    return Response.json({ error: "A imagem deve ter no maximo 12 MB." }, { status: 413 });
+  }
+
+  try {
+    const src = await uploadEditorImage(file);
+
+    return Response.json({ src });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message ? error.message : "Nao foi possivel enviar a imagem.";
+
+    return Response.json(
+      {
+        error: message,
+      },
+      { status: message.includes("Formato de imagem") ? 400 : 500 },
+    );
+  }
+}
+
+export async function POST(request: Request, context: EditorRouteContext) {
+  const key = (await context.params).path.join("/");
+
+  if (key === "save") {
+    return handleSave(request);
+  }
+
+  if (key === "upload-image") {
+    return handleUploadImage(request);
+  }
+
+  return Response.json({ error: "Not found" }, { status: 404 });
 }

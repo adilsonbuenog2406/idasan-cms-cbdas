@@ -3,5 +3,11 @@
   "framework": "nextjs",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
-  "outputDirectory": null
+  "outputDirectory": null,
+  "rewrites": [
+    { "source": "/", "destination": "/site-dist/index.html" },
+    { "source": "/assets/:path*", "destination": "/site-dist/assets/:path*" },
+    { "source": "/logodark.webp", "destination": "/site-dist/logodark.webp" },
+    { "source": "/tailwind-browser.js", "destination": "/site-dist/tailwind-browser.js" }
+  ]
 }
