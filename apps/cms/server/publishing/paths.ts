@@ -13,6 +13,10 @@ const deploymentStateRoot = process.env.CMS_DEPLOYMENTS_DIR
 export const deploymentsDir = deploymentStateRoot;
 export const deploymentRecordsDir = path.join(deploymentsDir, "records");
 export const deploymentLockPath = path.join(deploymentsDir, "publish.lock.json");
+export const lastPublishedManifestPath = path.join(
+  deploymentsDir,
+  "last-published-manifest.json",
+);
 export const savedProjectPath = path.join(dataDir, "landing.grapes.json");
 export const publishedLandingPath = path.join(dataDir, "landing.html");
 export const siteDistPublicDir = path.join(cmsRoot, "public/site-dist");

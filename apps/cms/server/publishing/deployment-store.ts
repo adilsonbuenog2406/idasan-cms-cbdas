@@ -68,11 +68,7 @@ export function createInitialDeploymentRecord({
 
 export async function saveDeploymentRecord(record: DeploymentRecord) {
   await ensureDeploymentDirs();
-  const filePath = path.join(deploymentRecordsDir, `${record.id}.json`);
-  // #region agent log
-  fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:saveDeploymentRecord',message:'atomic write deployment record',data:{deploymentId:record.id,status:record.status,filesUploaded:record.filesUploaded},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  await writeJsonAtomic(filePath, record);
+  await writeJsonAtomic(path.join(deploymentRecordsDir, `${record.id}.json`), record);
 }
 
 export async function getDeploymentRecord(deploymentId: string) {
@@ -82,18 +78,8 @@ export async function getDeploymentRecord(deploymentId: string) {
       "utf8",
     );
 
-    try {
-      return JSON.parse(payload) as DeploymentRecord;
-    } catch (parseError) {
-      // #region agent log
-      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:getDeploymentRecord',message:'JSON.parse failed in getDeploymentRecord',data:{deploymentId,payloadLength:payload.length,payloadPreview:payload.slice(0,80),error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      return null;
-    }
-  } catch (readError) {
-    // #region agent log
-    fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:getDeploymentRecord:read',message:'readFile failed in getDeploymentRecord',data:{deploymentId,error:readError instanceof Error ? readError.message : String(readError)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    return JSON.parse(payload) as DeploymentRecord;
+  } catch {
     return null;
   }
 }
@@ -101,32 +87,24 @@ export async function getDeploymentRecord(deploymentId: string) {
 export async function listDeploymentRecords() {
   await ensureDeploymentDirs();
   const entries = await readdir(deploymentRecordsDir, { withFileTypes: true });
-  const namedPayloads = await Promise.all(
+  const payloads = await Promise.all(
     entries
       .filter(
         (entry) =>
-          entry.isFile() && entry.name.endsWith(".json") && !entry.name.endsWith(".tmp"),
+          entry.isFile() && entry.name.endsWith(".json") && !entry.name.includes(".tmp"),
       )
-      .map(async (entry) => ({
-        name: entry.name,
-        payload: await readFile(path.join(deploymentRecordsDir, entry.name), "utf8"),
-      })),
+      .map((entry) => readFile(path.join(deploymentRecordsDir, entry.name), "utf8")),
   );
 
-  const records: DeploymentRecord[] = [];
-
-  for (const { name, payload } of namedPayloads) {
-    try {
-      records.push(JSON.parse(payload) as DeploymentRecord);
-    } catch (parseError) {
-      // #region agent log
-      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'B',location:'deployment-store.ts:listDeploymentRecords',message:'JSON.parse failed in listDeploymentRecords',data:{name,payloadLength:payload.length,payloadPreview:payload.slice(0,80),error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      // Skip corrupt/empty records (can appear briefly with non-atomic writers; atomic writes prevent this).
-    }
-  }
-
-  return records.sort((first, second) => second.startedAt.localeCompare(first.startedAt));
+  return payloads
+    .flatMap((payload) => {
+      try {
+        return [JSON.parse(payload) as DeploymentRecord];
+      } catch {
+        return [];
+      }
+    })
+    .sort((first, second) => second.startedAt.localeCompare(first.startedAt));
 }
 
 export async function updateDeploymentRecord(
@@ -228,15 +206,7 @@ export async function finishDeploymentRecord({
 
 async function readCurrentLock() {
   try {
-    const payload = await readFile(deploymentLockPath, "utf8");
-    try {
-      return JSON.parse(payload) as LockFile;
-    } catch (parseError) {
-      // #region agent log
-      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'C',location:'deployment-store.ts:readCurrentLock',message:'lock JSON.parse failed',data:{payloadLength:payload.length,error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      return null;
-    }
+    return JSON.parse(await readFile(deploymentLockPath, "utf8")) as LockFile;
   } catch {
     return null;
   }

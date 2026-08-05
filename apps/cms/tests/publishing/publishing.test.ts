@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,11 +17,13 @@ import {
   resolvePublishRemotePath,
   selectReusableBackupPath,
 } from "../../server/publishing/sftp-publisher";
+import { injectDeploymentMeta, rewritePublishedHtml, writePublishedLandingIndex } from "../../server/publishing/build-release";
 import {
-  injectDeploymentMeta,
-  rewritePublishedHtml,
-  writePublishedLandingIndex,
-} from "../../server/publishing/build-release";
+  createUploadPlan,
+  diffDeploymentManifests,
+  parseDeploymentManifest,
+  sortUploadFiles,
+} from "../../server/publishing/diff-manifest";
 import { validateRelease } from "../../server/publishing/validate-release";
 import { shouldExecuteDeploymentInline } from "../../server/publishing/publisher";
 import { DeploymentError } from "../../server/publishing/types";
@@ -214,19 +215,96 @@ test("bloqueia publicacao quando nenhuma landing salva existe", async () => {
   });
 });
 
-test("cria manifesto com sha256 e tamanhos", async () => {
-  await withTempDir(async (dir) => {
-    await mkdir(path.join(dir, "assets"), { recursive: true });
-    await writeFile(path.join(dir, "index.html"), "<html>ok</html>", "utf8");
-    await writeFile(path.join(dir, "assets/style.css"), "body{}", "utf8");
+test("diff incremental detecta so arquivos alterados", () => {
+  const previous = {
+    deploymentId: "old",
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    totalFiles: 3,
+    totalBytes: 30,
+    files: [
+      { relativePath: "index.html", size: 10, sha256: "aaa", mimeType: "text/html" },
+      { relativePath: "assets/a.css", size: 10, sha256: "bbb", mimeType: "text/css" },
+      { relativePath: "uploads/old.png", size: 10, sha256: "ccc", mimeType: "image/png" },
+    ],
+  };
+  const next = {
+    deploymentId: "new",
+    generatedAt: "2026-01-02T00:00:00.000Z",
+    totalFiles: 3,
+    totalBytes: 32,
+    files: [
+      { relativePath: "index.html", size: 12, sha256: "ddd", mimeType: "text/html" },
+      { relativePath: "assets/a.css", size: 10, sha256: "bbb", mimeType: "text/css" },
+      { relativePath: "uploads/new.png", size: 10, sha256: "eee", mimeType: "image/png" },
+    ],
+  };
 
-    const { manifest } = await createDeploymentManifest(dir, "deployment-test");
-    const indexFile = manifest.files.find((file) => file.relativePath === "index.html");
+  const diff = diffDeploymentManifests(next, previous);
+  assert.deepEqual(
+    diff.changed.map((file) => file.relativePath),
+    ["index.html"],
+  );
+  assert.deepEqual(
+    diff.added.map((file) => file.relativePath),
+    ["uploads/new.png"],
+  );
+  assert.deepEqual(
+    diff.unchanged.map((file) => file.relativePath),
+    ["assets/a.css"],
+  );
+  assert.deepEqual(diff.removed, ["uploads/old.png"]);
 
-    assert.equal(manifest.totalFiles, 2);
-    assert.equal(indexFile?.sha256, createHash("sha256").update("<html>ok</html>").digest("hex"));
-  });
+  const plan = createUploadPlan(next, previous);
+  assert.equal(plan.mode, "incremental");
+  assert.equal(plan.filesToUpload.length, 2);
+  assert.equal(plan.unchangedCount, 1);
+  assert.equal(plan.removedCount, 1);
+  assert.equal(plan.uploadBytes, 22);
 });
+
+test("sem baseline gera upload completo", () => {
+  const next = {
+    deploymentId: "new",
+    generatedAt: "2026-01-02T00:00:00.000Z",
+    totalFiles: 1,
+    totalBytes: 10,
+    files: [{ relativePath: "index.html", size: 10, sha256: "aaa", mimeType: "text/html" }],
+  };
+
+  const plan = createUploadPlan(next, null);
+  assert.equal(plan.mode, "full");
+  assert.equal(plan.reason, "no_baseline_manifest");
+  assert.equal(plan.filesToUpload.length, 1);
+});
+
+test("sortUploadFiles coloca index e manifesto por ultimo", () => {
+  const sorted = sortUploadFiles([
+    { relativePath: "deployment-manifest.json" },
+    { relativePath: "index.html" },
+    { relativePath: "assets/a.css" },
+    { relativePath: "uploads/x.png" },
+  ]);
+
+  assert.deepEqual(
+    sorted.map((file) => file.relativePath),
+    ["assets/a.css", "uploads/x.png", "index.html", "deployment-manifest.json"],
+  );
+});
+
+test("parseDeploymentManifest rejeita payload invalido", () => {
+  assert.equal(parseDeploymentManifest(""), null);
+  assert.equal(parseDeploymentManifest("{}"), null);
+  assert.ok(
+    parseDeploymentManifest(
+      JSON.stringify({
+        deploymentId: "x",
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        files: [{ relativePath: "index.html", size: 1, sha256: "a", mimeType: "text/html" }],
+      }),
+    ),
+  );
+});
+
 
 test("bloqueia release sem index.html", async () => {
   await withTempDir(async (dir) => {

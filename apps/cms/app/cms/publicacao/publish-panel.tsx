@@ -277,9 +277,9 @@ export default function PublishPanel({ initialDeployments }: PublishPanelProps) 
           <div>
             <h2 className="text-lg font-semibold text-[#081736]">Deploy Hostinger</h2>
             <p className="mt-1 text-sm leading-6 text-[#526078]">
-              Publica a última versão salva no editor visual usando release temporária,
-              validação, backup e rollback automático. O deploy preserva o build fiel de
-              site/dist e reaproveita backup recente para acelerar a ativação.
+              Publica a última versão salva no editor. Só os arquivos alterados sobem via
+              SFTP (com backup e rollback). Arquivos iguais à versão publicada são
+              reutilizados.
             </p>
           </div>
           <button
@@ -348,7 +348,7 @@ export default function PublishPanel({ initialDeployments }: PublishPanelProps) 
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b7280]">
-                  Arquivos
+                  Arquivos a enviar
                 </p>
                 <p className="mt-1 text-sm font-semibold text-[#081736]">
                   {activeDeployment.filesUploaded}/{activeDeployment.totalFiles}

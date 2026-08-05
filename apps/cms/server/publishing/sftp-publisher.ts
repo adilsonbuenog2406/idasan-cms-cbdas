@@ -1,14 +1,22 @@
-import { stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pathPosix from "node:path/posix";
 import type Client from "ssh2-sftp-client";
 import { landingSlug, type SftpPublishConfig } from "./config";
+import {
+  createUploadPlan,
+  parseDeploymentManifest,
+  sortUploadFiles,
+  type UploadPlan,
+} from "./diff-manifest";
+import { deploymentsDir, lastPublishedManifestPath } from "./paths";
 import type { DeploymentManifest, DeploymentManifestFile } from "./types";
 import { DeploymentError } from "./types";
 
 type PublishCallbacks = {
   onStage: (stage: string) => Promise<void>;
   onUploadProgress: (filesUploaded: number, bytesUploaded: number) => Promise<void>;
+  onUploadPlan?: (plan: UploadPlan) => Promise<void>;
   onMode: (mode: "atomic" | "non_atomic", warning?: string) => Promise<void>;
   onBackupPath: (backupPath: string | null) => Promise<void>;
   onWarning: (warning: string) => Promise<void>;
@@ -285,26 +293,16 @@ async function copyRemoteDirectory(
   }
 }
 
-function createUploadFiles(
+function toUploadFiles(
   releaseDir: string,
-  manifest: DeploymentManifest,
+  files: DeploymentManifestFile[],
 ): UploadFile[] {
-  const files = manifest.files.map((file) => ({
-    ...file,
-    localPath: path.join(releaseDir, file.relativePath),
-  }));
-
-  return files.sort((first, second) => {
-    if (first.relativePath === "index.html") {
-      return 1;
-    }
-
-    if (second.relativePath === "index.html") {
-      return -1;
-    }
-
-    return first.relativePath.localeCompare(second.relativePath);
-  });
+  return sortUploadFiles(
+    files.map((file) => ({
+      ...file,
+      localPath: path.join(releaseDir, file.relativePath),
+    })),
+  );
 }
 
 async function uploadFiles({
@@ -352,22 +350,21 @@ async function uploadFiles({
 
 async function removeObsoletePublishedFiles({
   client,
-  files,
+  keepRelativePaths,
   remoteRoot,
   publishRoot,
 }: {
   client: Client;
-  files: UploadFile[];
+  keepRelativePaths: Set<string>;
   remoteRoot: string;
   publishRoot: string;
 }) {
-  const nextFiles = new Set(files.map((file) => file.relativePath));
   const existingFiles = await listRemoteFiles(client, remoteRoot, remoteRoot, {
     skipCmsInternal: true,
   });
 
   for (const existingFile of existingFiles) {
-    if (!nextFiles.has(existingFile)) {
+    if (!keepRelativePaths.has(existingFile)) {
       await client
         .delete(
           assertRemotePathInsidePublishRoot(
@@ -380,17 +377,73 @@ async function removeObsoletePublishedFiles({
   }
 }
 
-async function activateNonAtomic({
+async function readLocalPublishedManifest() {
+  try {
+    return parseDeploymentManifest(await readFile(lastPublishedManifestPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveLastPublishedManifest(manifest: DeploymentManifest) {
+  await mkdir(deploymentsDir, { recursive: true });
+  await writeFile(
+    lastPublishedManifestPath,
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function readRemotePublishedManifest(client: Client, remotePath: string) {
+  const remoteManifestPath = remoteJoin(remotePath, "deployment-manifest.json");
+
+  if (!(await remoteExists(client, remoteManifestPath))) {
+    return null;
+  }
+
+  try {
+    const payload = await client.get(remoteManifestPath);
+    const body = Buffer.isBuffer(payload)
+      ? payload.toString("utf8")
+      : typeof payload === "string"
+        ? payload
+        : Buffer.from(payload as ArrayBuffer).toString("utf8");
+
+    return parseDeploymentManifest(body);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveBaselineManifest(client: Client, remotePath: string) {
+  const remoteManifest = await readRemotePublishedManifest(client, remotePath);
+
+  if (remoteManifest) {
+    return { baseline: remoteManifest, source: "remote" as const };
+  }
+
+  const localManifest = await readLocalPublishedManifest();
+
+  if (localManifest) {
+    return { baseline: localManifest, source: "local" as const };
+  }
+
+  return { baseline: null, source: "none" as const };
+}
+
+async function activatePublishedFiles({
   callbacks,
   client,
   config,
-  files,
+  filesToUpload,
+  keepRelativePaths,
   layout,
 }: {
   callbacks: PublishCallbacks;
   client: Client;
   config: SftpPublishConfig;
-  files: UploadFile[];
+  filesToUpload: UploadFile[];
+  keepRelativePaths: Set<string>;
   layout: ReturnType<typeof getRemoteLayout>;
 }) {
   await callbacks.onMode("non_atomic", "non_atomic_deployment");
@@ -417,16 +470,22 @@ async function activateNonAtomic({
 
   await callbacks.onStage("activating");
   await ensureRemoteDirectory(client, config.remotePath, config.remotePath);
-  await uploadFiles({
-    client,
-    files,
-    remoteRoot: config.remotePath,
-    publishRoot: config.remotePath,
-    callbacks,
-  });
+
+  if (filesToUpload.length > 0) {
+    await uploadFiles({
+      client,
+      files: filesToUpload,
+      remoteRoot: config.remotePath,
+      publishRoot: config.remotePath,
+      callbacks,
+    });
+  } else {
+    await callbacks.onUploadProgress(0, 0);
+  }
+
   await removeObsoletePublishedFiles({
     client,
-    files,
+    keepRelativePaths,
     remoteRoot: config.remotePath,
     publishRoot: config.remotePath,
   });
@@ -458,16 +517,10 @@ export async function rollbackRemoteDeployment({
   }).catch(() => {});
   await copyRemoteDirectory(client, config.remotePath, backupPath, config.remotePath);
 
-  const backupFiles = (await listRemoteFiles(client, backupPath)).map((relativePath) => ({
-    relativePath,
-    localPath: "",
-    size: 0,
-    sha256: "",
-    mimeType: "",
-  }));
+  const backupFiles = await listRemoteFiles(client, backupPath);
   await removeObsoletePublishedFiles({
     client,
-    files: backupFiles,
+    keepRelativePaths: new Set(backupFiles),
     remoteRoot: config.remotePath,
     publishRoot: config.remotePath,
   });
@@ -518,15 +571,7 @@ export async function publishReleaseViaSftp({
   config.remotePath = await resolvePublishRemotePath(client, config);
   const layout = getRemoteLayout(config.remotePath, deploymentId);
   const manifestFilePath = path.join(releaseDir, "deployment-manifest.json");
-  const manifestStats = await stat(manifestFilePath);
-  const files = createUploadFiles(releaseDir, manifest);
-  files.push({
-    relativePath: "deployment-manifest.json",
-    size: manifestStats.size,
-    sha256: "",
-    mimeType: "application/json; charset=utf-8",
-    localPath: manifestFilePath,
-  });
+  const forceFull = process.env.CMS_FORCE_FULL_PUBLISH === "true";
 
   for (const scopedPath of [
     layout.stagingRoot,
@@ -538,29 +583,61 @@ export async function publishReleaseViaSftp({
     assertRemotePathInsidePublishRoot(config.remotePath, scopedPath);
   }
 
-  await callbacks.onStage("uploading");
-  await ensureRemoteDirectory(client, config.remotePath, layout.stagingRoot);
-  await ensureRemoteDirectory(client, config.remotePath, layout.backupsRoot);
-  await removeRemotePath(client, config.remotePath, layout.stagingPath).catch(() => {});
-  await ensureRemoteDirectory(client, config.remotePath, layout.stagingPath);
-  await uploadFiles({
-    client,
-    files,
-    remoteRoot: layout.stagingPath,
-    publishRoot: config.remotePath,
-    callbacks,
-  });
-
   await callbacks.onStage("verifying");
+  const { baseline, source } = await resolveBaselineManifest(client, config.remotePath);
+  const plan = createUploadPlan(manifest, baseline, { forceFull });
 
-  if (!(await remoteExists(client, remoteJoin(layout.stagingPath, "index.html")))) {
-    throw new DeploymentError(
-      "REMOTE_VERIFICATION_FAILED",
-      "index.html não foi enviado para staging.",
+  const manifestStats = await stat(manifestFilePath);
+  const changedRelativePaths = new Set(plan.filesToUpload.map((file) => file.relativePath));
+  const filesToUpload = toUploadFiles(releaseDir, [
+    ...plan.filesToUpload.filter((file) => file.relativePath !== "deployment-manifest.json"),
+    {
+      relativePath: "deployment-manifest.json",
+      size: manifestStats.size,
+      sha256: "",
+      mimeType: "application/json; charset=utf-8",
+    },
+  ]);
+
+  // Always refresh the remote manifest last so a partial upload cannot claim success.
+  const uploadPlan: UploadPlan = {
+    ...plan,
+    filesToUpload: filesToUpload.map(({ localPath: _localPath, ...file }) => file),
+    uploadBytes: filesToUpload.reduce((total, file) => total + file.size, 0),
+    unchangedCount:
+      plan.mode === "incremental"
+        ? plan.unchangedCount
+        : Math.max(0, plan.releaseFileCount - changedRelativePaths.size),
+  };
+
+  await callbacks.onUploadPlan?.(uploadPlan);
+
+  if (plan.mode === "incremental") {
+    await callbacks.onWarning(
+      `Upload incremental: ${plan.filesToUpload.length} alterados, ${plan.unchangedCount} reutilizados, ${plan.removedCount} removidos (baseline: ${source}).`,
+    );
+  } else {
+    await callbacks.onWarning(
+      `Upload completo: ${plan.filesToUpload.length} arquivos (motivo: ${plan.reason}, baseline: ${source}).`,
     );
   }
 
-  await activateNonAtomic({ callbacks, client, config, files, layout });
+  await callbacks.onStage("uploading");
+  await ensureRemoteDirectory(client, config.remotePath, layout.backupsRoot);
 
-  return layout;
+  const keepRelativePaths = new Set([
+    ...manifest.files.map((file) => file.relativePath),
+    "deployment-manifest.json",
+  ]);
+
+  await activatePublishedFiles({
+    callbacks,
+    client,
+    config,
+    filesToUpload,
+    keepRelativePaths,
+    layout,
+  });
+
+  return { layout, uploadPlan };
 }

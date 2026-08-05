@@ -18,6 +18,7 @@ import {
   cleanupOldBackups,
   publishReleaseViaSftp,
   rollbackRemoteDeployment,
+  saveLastPublishedManifest,
 } from "./sftp-publisher";
 import { runHealthCheck } from "./health-check";
 import { getDeploymentTmpDir } from "./paths";
@@ -141,6 +142,33 @@ export async function executeDeployment(deploymentId: string) {
           status: stage as never,
         });
       },
+      onUploadPlan: async (plan: {
+        mode: "incremental" | "full";
+        filesToUpload: Array<{ size: number }>;
+        uploadBytes: number;
+        unchangedCount: number;
+        removedCount: number;
+        reason: string;
+      }) => {
+        await updateDeploymentRecord(deploymentId, "uploading", {
+          totalFiles: plan.filesToUpload.length,
+          totalBytes: plan.uploadBytes,
+          filesUploaded: 0,
+          bytesUploaded: 0,
+          warning:
+            plan.mode === "incremental"
+              ? `incremental:${plan.filesToUpload.length}:${plan.unchangedCount}:${plan.removedCount}`
+              : `full:${plan.reason}`,
+        });
+        logDeploymentEvent({
+          deploymentId,
+          userId,
+          stage: "uploading",
+          status: "uploading",
+          filesUploaded: 0,
+          bytesUploaded: plan.uploadBytes,
+        });
+      },
       onUploadProgress: async (filesUploaded: number, bytesUploaded: number) => {
         await updateDeploymentRecord(deploymentId, "uploading", {
           bytesUploaded,
@@ -155,7 +183,7 @@ export async function executeDeployment(deploymentId: string) {
       },
     };
 
-    const layout = await publishReleaseViaSftp({
+    const { layout } = await publishReleaseViaSftp({
       callbacks,
       client,
       config,
@@ -196,6 +224,7 @@ export async function executeDeployment(deploymentId: string) {
       return;
     }
 
+    await saveLastPublishedManifest(release.manifest);
     await finishDeploymentRecord({ deploymentId, status: "published" });
     await cleanupOldBackups(client, config);
     await rm(getDeploymentTmpDir(deploymentId), { recursive: true, force: true });
