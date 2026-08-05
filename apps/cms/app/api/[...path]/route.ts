@@ -3,7 +3,12 @@ import path from "node:path";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { isCmsAuthenticated } from "@/app/cms/_lib/auth";
-import { readPublishedLandingHtml, readUploadedAsset, saveLanding, uploadEditorImage } from "@/server/cms-storage";
+import {
+  readPublishedLandingHtml,
+  readUploadedAsset,
+  saveLanding,
+  uploadEditorImage,
+} from "@/server/cms-storage";
 import {
   createDeployment,
   getDeployment,
@@ -74,10 +79,18 @@ async function getExpectedCredentials() {
   }
 }
 
+function normalizeEditorBodyHtml(html: string) {
+  const trimmed = html.trim();
+  const wrappedBody = trimmed.match(/^<body\b[^>]*>([\s\S]*)<\/body>$/i);
+
+  return wrappedBody ? wrappedBody[1] : html;
+}
+
 function renderDocument(html: string, css: string, siteCssHref?: string) {
   const siteStylesheet = siteCssHref
     ? `    <link rel="stylesheet" crossorigin href="${siteCssHref}" />\n`
     : "";
+  const bodyHtml = normalizeEditorBodyHtml(html);
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -92,7 +105,7 @@ ${siteStylesheet}    <link rel="icon" type="image/webp" sizes="192x192" href="/l
     <style>${css}</style>
   </head>
   <body>
-${html}
+${bodyHtml}
   </body>
 </html>`;
 }
@@ -108,22 +121,47 @@ async function requireSessionCookie() {
 }
 
 async function handlePublishGet(segments: string[]) {
+  // #region agent log
+  fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'E',location:'route.ts:handlePublishGet:entry',message:'publish GET',data:{segments},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (!(await isCmsAuthenticated())) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (segments.length === 1 && segments[0] === "history") {
-    return Response.json({ deployments: await getDeploymentHistory() });
+    try {
+      const deployments = await getDeploymentHistory();
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'B',location:'route.ts:handlePublishGet:history',message:'history ok',data:{count:deployments.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return Response.json({ deployments });
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'B',location:'route.ts:handlePublishGet:history:error',message:'history threw',data:{error:error instanceof Error ? error.message : String(error),name:error instanceof Error ? error.name : typeof error},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      throw error;
+    }
   }
 
   if (segments.length === 1) {
-    const record = await getDeployment(segments[0]);
+    try {
+      const record = await getDeployment(segments[0]);
 
-    if (!record) {
-      return Response.json({ error: "Deployment not found" }, { status: 404 });
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'A',location:'route.ts:handlePublishGet:status',message:'status lookup result',data:{deploymentId:segments[0],found:Boolean(record),status:record?.status ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+
+      if (!record) {
+        return Response.json({ error: "Deployment not found" }, { status: 404 });
+      }
+
+      return Response.json({ deployment: record });
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'A',location:'route.ts:handlePublishGet:status:error',message:'status threw',data:{deploymentId:segments[0],error:error instanceof Error ? error.message : String(error),name:error instanceof Error ? error.name : typeof error,stack:error instanceof Error ? error.stack?.slice(0,500) : null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      throw error;
     }
-
-    return Response.json({ deployment: record });
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });
@@ -254,7 +292,14 @@ async function handleEditorUpload(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file");
 
-  if (!(file instanceof File) || !file.type.startsWith("image/")) {
+  if (!(file instanceof File)) {
+    return Response.json({ error: "Envie um arquivo de imagem valido." }, { status: 400 });
+  }
+
+  const hasImageMime = file.type.startsWith("image/");
+  const hasImageExtension = /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file.name);
+
+  if (!hasImageMime && !hasImageExtension) {
     return Response.json({ error: "Envie um arquivo de imagem valido." }, { status: 400 });
   }
 
@@ -290,22 +335,25 @@ async function handlePreviewGet() {
   }
 
   try {
-    return new Response(await readPublishedLandingHtml(), {
+    const html = await readPublishedLandingHtml();
+
+    return new Response(html, {
       headers: {
         "cache-control": "no-store",
         "content-type": "text/html; charset=utf-8",
       },
     });
-  } catch (error) {
-    console.error("CMS_PREVIEW_FAILED", error);
-
-    return new Response("Nenhuma versao salva foi encontrada. Salve pelo editor antes do preview.", {
-      status: 404,
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain; charset=utf-8",
+  } catch {
+    return new Response(
+      "<!doctype html><html lang=\"pt-BR\"><body style=\"font-family:Montserrat,sans-serif;padding:2rem;color:#10245f\"><p>Nenhuma versão salva encontrada. Clique em Salvar no editor antes de abrir o preview.</p></body></html>",
+      {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "text/html; charset=utf-8",
+        },
+        status: 404,
       },
-    });
+    );
   }
 }
 
@@ -330,22 +378,6 @@ export async function GET(_request: Request, context: ApiRouteContext) {
   const segments = (await context.params).path;
   const key = segments.join("/");
 
-  // #region agent log
-  fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9f65a1" },
-    body: JSON.stringify({
-      sessionId: "9f65a1",
-      runId: "post-fix",
-      hypothesisId: "F",
-      location: "apps/cms/app/api/[...path]/route.ts:GET",
-      message: "Unified API GET",
-      data: { key },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   if (key === "cms/login") {
     redirect("/cms");
   }
@@ -368,22 +400,6 @@ export async function GET(_request: Request, context: ApiRouteContext) {
 export async function POST(request: Request, context: ApiRouteContext) {
   const segments = (await context.params).path;
   const key = segments.join("/");
-
-  // #region agent log
-  fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9f65a1" },
-    body: JSON.stringify({
-      sessionId: "9f65a1",
-      runId: "post-fix",
-      hypothesisId: "F",
-      location: "apps/cms/app/api/[...path]/route.ts:POST",
-      message: "Unified API POST",
-      data: { key },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   if (key === "cms/login") {
     const formData = await request.formData();

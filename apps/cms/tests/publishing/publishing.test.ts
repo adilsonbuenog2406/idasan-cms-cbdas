@@ -18,7 +18,11 @@ import {
   resolvePublishRemotePath,
   selectReusableBackupPath,
 } from "../../server/publishing/sftp-publisher";
-import { injectDeploymentMeta, writePublishedLandingIndex } from "../../server/publishing/build-release";
+import {
+  injectDeploymentMeta,
+  rewritePublishedHtml,
+  writePublishedLandingIndex,
+} from "../../server/publishing/build-release";
 import { validateRelease } from "../../server/publishing/validate-release";
 import { shouldExecuteDeploymentInline } from "../../server/publishing/publisher";
 import { DeploymentError } from "../../server/publishing/types";
@@ -160,54 +164,51 @@ test("reutiliza backup remoto criado nos ultimos 7 dias", () => {
   );
 });
 
-test("preserva o index do site-dist e injeta apenas o deployment id", () => {
+test("injeta deployment id no html salvo", () => {
   const html = injectDeploymentMeta(
-    `<!doctype html><html><head><script type="module" crossorigin src="./assets/index-test.js"></script><link rel="stylesheet" crossorigin href="./assets/index-test.css"></head><body><div id="root"></div></body></html>`,
+    `<!doctype html><html><head></head><body><div id="root">landing salva</div></body></html>`,
     "deployment-test",
   );
 
   assert.match(html, /cms-deployment-id/);
-  assert.match(html, /type="module" crossorigin src="\.\/assets\/index-test\.js"/);
-  assert.match(html, /href="\.\/assets\/index-test\.css"/);
-  assert.doesNotMatch(html, /cms-published-runtime-style/);
-  assert.doesNotMatch(html, /cms-published-runtime-script/);
+  assert.match(html, /landing salva/);
 });
 
-test("usa a landing salva como index da release", async () => {
+test("publicacao usa a landing salva com paths relativos e runtime", async () => {
   await withTempDir(async (dir) => {
     const releaseIndexPath = path.join(dir, "index.html");
-    const publishedLandingPath = path.join(dir, "landing.html");
+    const savedLanding = `<!doctype html><html><head><link rel="stylesheet" href="/assets/index-test.css"></head><body><div id="root"><img src="/assets/hero.png" alt=""><img src="/uploads/foto.png" alt="">landing salva</div></body></html>`;
 
-    await writeFile(
-      releaseIndexPath,
-      `<!doctype html><html><head></head><body><div id="root">site-dist antigo</div></body></html>`,
-      "utf8",
-    );
-    await writeFile(
-      publishedLandingPath,
-      `<!doctype html><html><head></head><body><main>landing salva</main></body></html>`,
-      "utf8",
-    );
-
-    await writePublishedLandingIndex(releaseIndexPath, "deployment-test", publishedLandingPath);
+    await writePublishedLandingIndex(releaseIndexPath, "deployment-test", savedLanding);
 
     const html = await readFile(releaseIndexPath, "utf8");
 
     assert.match(html, /landing salva/);
     assert.match(html, /cms-deployment-id/);
-    assert.doesNotMatch(html, /site-dist antigo/);
+    assert.match(html, /cms-published-runtime-style/);
+    assert.match(html, /cms-published-runtime-script/);
+    assert.match(html, /href="assets\/index-test\.css"/);
+    assert.match(html, /src="assets\/hero\.png"/);
+    assert.match(html, /src="uploads\/foto\.png"/);
+    assert.doesNotMatch(html, /href="\/assets\//);
   });
 });
 
-test("bloqueia publicacao quando nao ha landing salva", async () => {
+test("rewritePublishedHtml reescreve assets absolutos para relativos", () => {
+  const html = rewritePublishedHtml(
+    `<!doctype html><html><head><link href="/assets/a.css"></head><body><img src="/assets/b.png"></body></html>`,
+    "deployment-test",
+  );
+
+  assert.match(html, /href="assets\/a\.css"/);
+  assert.match(html, /src="assets\/b\.png"/);
+  assert.match(html, /cms-deployment-id/);
+});
+
+test("bloqueia publicacao quando nenhuma landing salva existe", async () => {
   await withTempDir(async (dir) => {
     await assert.rejects(
-      () =>
-        writePublishedLandingIndex(
-          path.join(dir, "index.html"),
-          "deployment-test",
-          path.join(dir, "missing-landing.html"),
-        ),
+      () => writePublishedLandingIndex(path.join(dir, "index.html"), "deployment-test", "   "),
       DeploymentError,
     );
   });

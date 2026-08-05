@@ -32,13 +32,33 @@ type CmsEditorCurrentRow = {
   css: string;
   mode: string | null;
   site_css_href: string | null;
-  rendered_html: string;
+  rendered_html?: string;
   updated_at: string | null;
+};
+
+type ReadCurrentLandingOptions = {
+  timeoutMs?: number;
+  includeRenderedHtml?: boolean;
 };
 
 let cachedSupabase: SupabaseClient | null | undefined;
 let didEnsureBucket = false;
 let cachedFileEnv: Record<string, string> | null = null;
+let cachedSavedProjectJson: { value: string; expiresAt: number } | null = null;
+const savedProjectCacheTtlMs = 5_000;
+const remoteReadTimeoutMs = 5_000;
+
+function rememberSavedProjectJson(value: string) {
+  cachedSavedProjectJson = {
+    value,
+    expiresAt: Date.now() + savedProjectCacheTtlMs,
+  };
+  return value;
+}
+
+function clearSavedProjectJsonCache() {
+  cachedSavedProjectJson = null;
+}
 
 function parseEnv(content: string) {
   const values: Record<string, string> = {};
@@ -161,14 +181,36 @@ async function uploadTextObject(supabase: SupabaseClient, objectPath: string, bo
   }
 }
 
-async function downloadObject(supabase: SupabaseClient, objectPath: string) {
-  const { data, error } = await supabase.storage.from(getStorageBucket()).download(objectPath);
+async function downloadObject(supabase: SupabaseClient, objectPath: string, timeoutMs?: number) {
+  const downloadPromise = (async () => {
+    const { data, error } = await supabase.storage.from(getStorageBucket()).download(objectPath);
 
-  if (error) {
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    return Buffer.from(await data.arrayBuffer());
+  })();
+
+  if (!timeoutMs || timeoutMs <= 0) {
+    return downloadPromise;
   }
 
-  return Buffer.from(await data.arrayBuffer());
+  const timeoutError = new Error(`Storage download timeout after ${timeoutMs}ms`);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      downloadPromise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(timeoutError), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function getSupabaseErrorCode(error: unknown) {
@@ -276,12 +318,25 @@ async function saveLandingToDatabase(supabase: SupabaseClient, input: SaveLandin
   return true;
 }
 
-async function readCurrentLandingFromDatabase(supabase: SupabaseClient) {
-  const { data, error } = await supabase
+async function readCurrentLandingFromDatabase(
+  supabase: SupabaseClient,
+  options: ReadCurrentLandingOptions = {},
+) {
+  const includeRenderedHtml = options.includeRenderedHtml !== false;
+  const columns = includeRenderedHtml
+    ? "html, css, mode, site_css_href, rendered_html, updated_at"
+    : "html, css, mode, site_css_href, updated_at";
+
+  let query = supabase
     .from("cms_editor_current")
-    .select("html, css, mode, site_css_href, rendered_html, updated_at")
-    .eq("document_key", editorDocumentKey)
-    .maybeSingle<CmsEditorCurrentRow>();
+    .select(columns)
+    .eq("document_key", editorDocumentKey);
+
+  if (options.timeoutMs && options.timeoutMs > 0) {
+    query = query.abortSignal(AbortSignal.timeout(options.timeoutMs));
+  }
+
+  const { data, error } = await query.maybeSingle<CmsEditorCurrentRow>();
 
   if (error) {
     if (isMissingCmsDatabaseSchema(error)) {
@@ -301,6 +356,44 @@ async function saveLandingToObjectStorage(supabase: SupabaseClient, input: SaveL
   ]);
 }
 
+async function seedCurrentLandingFromLocalFiles(supabase: SupabaseClient) {
+  const projectJson = await readFile(savedProjectPath, "utf8");
+  const project = JSON.parse(projectJson) as {
+    html?: unknown;
+    css?: unknown;
+    mode?: unknown;
+    siteCssHref?: unknown;
+  };
+
+  if (typeof project.html !== "string" || typeof project.css !== "string") {
+    return null;
+  }
+
+  let renderedHtml: string;
+
+  try {
+    renderedHtml = await readFile(publishedLandingPath, "utf8");
+  } catch {
+    renderedHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>CBDAS</title></head><body>${project.html}<style>${project.css}</style></body></html>`;
+  }
+
+  const input: SaveLandingInput = {
+    html: project.html,
+    css: project.css,
+    mode: project.mode,
+    siteCssHref: typeof project.siteCssHref === "string" ? project.siteCssHref : undefined,
+    renderedHtml,
+  };
+
+  const savedToDatabase = await saveLandingToDatabase(supabase, input);
+
+  if (!savedToDatabase) {
+    await saveLandingToObjectStorage(supabase, input, projectJson);
+  }
+
+  return projectJson;
+}
+
 export function hasPersistentCmsStorage() {
   return Boolean(getSupabaseAdmin());
 }
@@ -311,19 +404,27 @@ function requiresPersistentCmsStorage() {
 
 export async function saveLanding(input: SaveLandingInput) {
   const supabase = getSupabaseAdmin();
+  clearSavedProjectJsonCache();
+  const projectJson = toProjectJsonFromInput(input, new Date().toISOString());
 
   if (supabase) {
     const savedToDatabase = await saveLandingToDatabase(supabase, input);
 
-    if (savedToDatabase) {
-      return;
+    if (!savedToDatabase) {
+      await saveLandingToObjectStorage(supabase, input, projectJson);
     }
 
-    await saveLandingToObjectStorage(
-      supabase,
-      input,
-      toProjectJsonFromInput(input, new Date().toISOString()),
-    );
+    try {
+      await mkdir(dataDir, { recursive: true });
+      await Promise.all([
+        writeFile(savedProjectPath, projectJson, "utf8"),
+        writeFile(publishedLandingPath, input.renderedHtml, "utf8"),
+      ]);
+    } catch {
+      // Local mirror is best-effort for faster subsequent editor loads.
+    }
+
+    rememberSavedProjectJson(projectJson);
     return;
   }
 
@@ -333,42 +434,94 @@ export async function saveLanding(input: SaveLandingInput) {
     );
   }
 
-  const projectJson = toProjectJsonFromInput(input, new Date().toISOString());
-
   await mkdir(dataDir, { recursive: true });
   await Promise.all([
     writeFile(savedProjectPath, projectJson, "utf8"),
     writeFile(publishedLandingPath, input.renderedHtml, "utf8"),
   ]);
+  rememberSavedProjectJson(projectJson);
 }
 
 export async function readSavedProjectJson() {
-  const supabase = getSupabaseAdmin();
-
-  if (supabase) {
-    const currentLanding = await readCurrentLandingFromDatabase(supabase);
-
-    if (currentLanding) {
-      return toProjectJson(currentLanding);
-    }
-
-    return (await downloadObject(supabase, savedProjectObjectPath)).toString("utf8");
+  if (cachedSavedProjectJson && cachedSavedProjectJson.expiresAt > Date.now()) {
+    return cachedSavedProjectJson.value;
   }
 
-  return readFile(savedProjectPath, "utf8");
+  const supabase = getSupabaseAdmin();
+  let remoteFailedHard = false;
+
+  if (supabase) {
+    try {
+      const currentLanding = await readCurrentLandingFromDatabase(supabase, {
+        timeoutMs: remoteReadTimeoutMs,
+        includeRenderedHtml: false,
+      });
+
+      if (currentLanding) {
+        const projectJson = toProjectJson(currentLanding);
+
+        try {
+          await mkdir(dataDir, { recursive: true });
+          await writeFile(savedProjectPath, projectJson, "utf8");
+        } catch {
+          // Local mirror is best-effort only.
+        }
+
+        return rememberSavedProjectJson(projectJson);
+      }
+
+      try {
+        const seededProjectJson = await seedCurrentLandingFromLocalFiles(supabase);
+        if (seededProjectJson) {
+          return rememberSavedProjectJson(seededProjectJson);
+        }
+      } catch {
+        // Fall through to object storage / local file.
+      }
+    } catch {
+      remoteFailedHard = true;
+    }
+
+    if (!remoteFailedHard) {
+      try {
+        const objectBody = (
+          await downloadObject(supabase, savedProjectObjectPath, remoteReadTimeoutMs)
+        ).toString("utf8");
+        return rememberSavedProjectJson(objectBody);
+      } catch {
+        // Fall through to local file.
+      }
+    }
+  }
+
+  const localBody = await readFile(savedProjectPath, "utf8");
+  return rememberSavedProjectJson(localBody);
 }
 
 export async function readPublishedLandingHtml() {
   const supabase = getSupabaseAdmin();
 
   if (supabase) {
-    const currentLanding = await readCurrentLandingFromDatabase(supabase);
+    try {
+      const currentLanding = await readCurrentLandingFromDatabase(supabase, {
+        timeoutMs: remoteReadTimeoutMs,
+        includeRenderedHtml: true,
+      });
 
-    if (currentLanding) {
-      return currentLanding.rendered_html;
+      if (currentLanding?.rendered_html) {
+        return currentLanding.rendered_html;
+      }
+    } catch {
+      // Fall through to object storage / local file.
     }
 
-    return (await downloadObject(supabase, publishedLandingObjectPath)).toString("utf8");
+    try {
+      return (await downloadObject(supabase, publishedLandingObjectPath, remoteReadTimeoutMs)).toString(
+        "utf8",
+      );
+    } catch {
+      // Fall through to local file.
+    }
   }
 
   return readFile(publishedLandingPath, "utf8");

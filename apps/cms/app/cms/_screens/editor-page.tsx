@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { isCmsAuthenticated } from "../_lib/auth";
 import LandingEditor from "../editor/landing-editor";
 import { readSavedProjectJson } from "@/server/cms-storage";
+import {
+  resolveEditorInitialState,
+  type SavedEditorProject,
+} from "./resolve-editor-initial-state";
 
 const siteIndexPath = path.resolve(process.cwd(), "public/site-dist/index.html");
 const siteAssetsPath = path.resolve(process.cwd(), "public/site-dist/assets");
@@ -121,6 +125,28 @@ const snapshotScript = `<script>
     element.setAttribute(attributeName, value.slice(window.location.origin.length));
   }
 
+  function replaceCanvasesWithImages(root) {
+    Array.prototype.slice.call(root.querySelectorAll("canvas")).forEach(function (canvas) {
+      try {
+        var dataUrl = canvas.toDataURL("image/png");
+        if (!dataUrl || dataUrl.length < 100) {
+          return;
+        }
+
+        var img = document.createElement("img");
+        img.src = dataUrl;
+        img.alt = canvas.getAttribute("aria-label") || "";
+        img.className = canvas.className || "block h-full w-full rounded-full object-cover";
+        img.setAttribute("data-cbdas-participant-photo", "true");
+        if (canvas.parentNode) {
+          canvas.parentNode.replaceChild(img, canvas);
+        }
+      } catch (_error) {
+        // Cross-origin or empty canvas — leave as-is.
+      }
+    });
+  }
+
   function postSnapshot(attempt) {
     var root = document.getElementById("root");
 
@@ -134,12 +160,18 @@ const snapshotScript = `<script>
     var missingSections = expectedSectionSelectors.filter(function (selector) {
       return !root.querySelector(selector);
     });
+    var pendingImages = Array.prototype.slice
+      .call(root.querySelectorAll("img"))
+      .filter(function (img) {
+        return !img.complete;
+      }).length;
 
-    if ((isStillLoading || missingSections.length > 0) && attempt < 120) {
+    if ((isStillLoading || missingSections.length > 0 || pendingImages > 0) && attempt < 120) {
       retry(attempt);
       return;
     }
 
+    replaceCanvasesWithImages(root);
     var clone = root.cloneNode(true);
 
     clone.querySelectorAll("[src]").forEach(function (element) {
@@ -215,11 +247,6 @@ function getInitialHtml() {
 </div>`;
 }
 
-type SavedEditorProject = {
-  html: string;
-  css: string;
-};
-
 async function getSavedEditorProject(): Promise<SavedEditorProject | null> {
   try {
     const project = JSON.parse(await readSavedProjectJson()) as {
@@ -247,16 +274,23 @@ export default async function EditorPage() {
     redirect("/cms");
   }
 
+  // Last saved/published project is the source of truth for /cms/editor.
+  // Fall back to a site-dist snapshot only when nothing has been saved yet.
   const [assets, savedProject] = await Promise.all([getSiteAssets(), getSavedEditorProject()]);
-  const snapshotSourceHtml = savedProject ? "" : await getSnapshotSourceHtml();
+  const snapshotFromDist = savedProject ? "" : await getSnapshotSourceHtml();
+  const initialState = resolveEditorInitialState({
+    savedProject,
+    loadingHtml: getInitialHtml(),
+    snapshotSourceHtml: snapshotFromDist,
+  });
 
   return (
     <LandingEditor
-      initialHtml={savedProject?.html ?? getInitialHtml()}
-      initialCss={savedProject?.css ?? ""}
+      initialHtml={initialState.initialHtml}
+      initialCss={initialState.initialCss}
       siteCssHref={assets.cssHref}
       shortcutsBackgroundHref={assets.shortcutsBackgroundHref}
-      snapshotSourceHtml={snapshotSourceHtml}
+      snapshotSourceHtml={initialState.snapshotSourceHtml}
     />
   );
 }

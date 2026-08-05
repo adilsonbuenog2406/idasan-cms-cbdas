@@ -17,22 +17,6 @@ export default async function CmsSlugPage({ params, searchParams }: CmsSlugPageP
   const slug = (await params).slug ?? [];
   const key = slug.join("/");
 
-  // #region agent log
-  fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9f65a1" },
-    body: JSON.stringify({
-      sessionId: "9f65a1",
-      runId: "post-fix",
-      hypothesisId: "F",
-      location: "apps/cms/app/cms/[[...slug]]/page.tsx",
-      message: "CMS catch-all page hit",
-      data: { key, slug },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   if (key === "") {
     return HomePage({ searchParams: searchParams as Promise<{ error?: string }> });
   }

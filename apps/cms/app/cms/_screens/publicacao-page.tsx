@@ -70,9 +70,9 @@ function PublicacaoContent({
         <div className="overflow-hidden rounded-lg border border-[#10224f]/10 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-[#10224f]/10 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-[#081736]">Preview sincronizado</h2>
+              <h2 className="text-lg font-semibold text-[#081736]">Preview da versão salva</h2>
               <p className="text-sm text-[#526078]">
-                Última versão salva no editor visual
+                Última versão persistida no editor visual (a mesma enviada via SFTP)
               </p>
             </div>
             <a
@@ -86,7 +86,7 @@ function PublicacaoContent({
             </a>
           </div>
           <iframe
-            title="Preview da última versão salva no editor"
+            title="Preview da versão salva no editor"
             src={savedPreviewUrl}
             className="h-[620px] w-full bg-white"
           />

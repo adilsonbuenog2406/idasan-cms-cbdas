@@ -30,6 +30,18 @@ function getConnectionErrorMessage(message: string) {
   }
 
   if (
+    lowerMessage.includes("host denied") ||
+    lowerMessage.includes("verification failed") ||
+    lowerMessage.includes("host key")
+  ) {
+    return {
+      code: "SFTP_CONNECTION_FAILED" as const,
+      message:
+        "Fingerprint SFTP invalido. Atualize SFTP_HOST_FINGERPRINT com a chave atual do servidor Hostinger.",
+    };
+  }
+
+  if (
     lowerMessage.includes("timed out") ||
     lowerMessage.includes("timeout") ||
     lowerMessage.includes("econnrefused") ||
@@ -97,15 +109,31 @@ export async function connectSftp(config: SftpPublishConfig) {
   if (config.hostFingerprint) {
     const expectedFingerprint = normalizeFingerprint(config.hostFingerprint);
     connectOptions.hostHash = "sha256";
-    connectOptions.hostVerifier = (fingerprint) =>
-      normalizeFingerprint(String(fingerprint)) === expectedFingerprint;
+    connectOptions.hostVerifier = (fingerprint) => {
+      const actualFingerprint = normalizeFingerprint(String(fingerprint));
+      const matched = actualFingerprint === expectedFingerprint;
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'353f57'},body:JSON.stringify({sessionId:'353f57',runId:'post-fix',hypothesisId:'A',location:'sftp-client.ts:hostVerifier',message:'SFTP host fingerprint check',data:{matched,expectedPrefix:expectedFingerprint.slice(0,12),actualPrefix:actualFingerprint.slice(0,12),expectedLen:expectedFingerprint.length,actualLen:actualFingerprint.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return matched;
+    };
   }
+
+  // #region agent log
+  fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'353f57'},body:JSON.stringify({sessionId:'353f57',runId:'post-fix',hypothesisId:'A',location:'sftp-client.ts:connectSftp',message:'SFTP connect attempt',data:{host:config.host,port:config.port,username:config.username,hasPassword:Boolean(config.password),hasPrivateKey:Boolean(config.privateKey),hasFingerprint:Boolean(config.hostFingerprint),remotePath:config.remotePath},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   try {
     await connectWithTimeout(client, connectOptions, config.connectionTimeout);
+    // #region agent log
+    fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'353f57'},body:JSON.stringify({sessionId:'353f57',runId:'post-fix',hypothesisId:'A',location:'sftp-client.ts:connectSftp',message:'SFTP connect succeeded',data:{host:config.host,port:config.port},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha ao conectar via SFTP.";
     const deploymentError = getConnectionErrorMessage(message);
+    // #region agent log
+    fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'353f57'},body:JSON.stringify({sessionId:'353f57',runId:'post-fix',hypothesisId:'A',location:'sftp-client.ts:connectSftp',message:'SFTP connect failed',data:{rawMessage:message,mappedCode:deploymentError.code,mappedMessage:deploymentError.message},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     await closeClientAfterFailedConnect(client);
 
     throw new DeploymentError(deploymentError.code, deploymentError.message);

@@ -22,6 +22,7 @@ type ImageContextMenuState = {
   y: number;
   mode: "menu" | "upload";
   isUploading: boolean;
+  isDragOver: boolean;
   error: string;
 };
 
@@ -610,8 +611,44 @@ function getImageComponentFromContextTarget(editor: Editor, target: HTMLElement)
   return imageElement ? getComponentForElement(editor, imageElement) : undefined;
 }
 
+function isLikelyImageFile(file: File) {
+  if (file.type.startsWith("image/")) {
+    return true;
+  }
+
+  return /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file.name);
+}
+
+function findClosestSpeakerCardComponent(component: Component | undefined) {
+  let currentComponent = component;
+
+  while (currentComponent) {
+    if (currentComponent.getAttributes()["data-cbdas-speaker-card"] !== undefined) {
+      return currentComponent;
+    }
+
+    currentComponent = currentComponent.parent();
+  }
+
+  return undefined;
+}
+
 function setImageComponentSrc(editor: Editor, imageComponent: Component, src: string) {
   imageComponent.addAttributes({ src });
+  imageComponent.set("src", src);
+
+  const viewElement = getComponentViewElement(imageComponent);
+
+  if (viewElement instanceof HTMLImageElement) {
+    viewElement.src = src;
+  } else if (viewElement) {
+    const nestedImage = viewElement.querySelector("img");
+
+    if (nestedImage instanceof HTMLImageElement) {
+      nestedImage.src = src;
+      nestedImage.setAttribute("src", src);
+    }
+  }
 
   const panelistComponent = imageComponent.closest(panelistCardSelector);
 
@@ -620,7 +657,26 @@ function setImageComponentSrc(editor: Editor, imageComponent: Component, src: st
     syncPanelistCardComponent(panelistComponent);
   }
 
+  const speakerCard = findClosestSpeakerCardComponent(imageComponent);
+
+  if (speakerCard) {
+    const speakerImage =
+      speakerCard.find("img")[0] ??
+      (imageComponent.get("tagName") === "img" ? imageComponent : undefined);
+
+    if (speakerImage) {
+      speakerImage.addAttributes({ src });
+      speakerImage.set("src", src);
+      const speakerImageEl = getComponentViewElement(speakerImage);
+
+      if (speakerImageEl instanceof HTMLImageElement) {
+        speakerImageEl.src = src;
+      }
+    }
+  }
+
   editor.select(imageComponent);
+  editor.trigger("component:update", imageComponent);
   editor.refresh();
 }
 
@@ -1794,6 +1850,7 @@ export default function LandingEditor({
           y: Math.min(window.innerHeight - 170, frameRect.top + event.clientY),
           mode: "upload",
           isUploading: false,
+          isDragOver: false,
           error: "",
         });
       };
@@ -1818,51 +1875,83 @@ export default function LandingEditor({
       const editor = editorRef.current;
 
       if (!editor || !imageComponent) {
-        return;
-      }
-
-      if (!file.type.startsWith("image/")) {
-        setImageContextMenu((current) =>
-          current ? { ...current, error: "Envie um arquivo de imagem." } : current,
-        );
-        return;
-      }
-
-      setImageContextMenu((current) =>
-        current ? { ...current, isUploading: true, error: "" } : current,
-      );
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch("/cms/editor/upload-image", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        src?: unknown;
-        error?: unknown;
-      };
-
-      if (!response.ok || typeof payload.src !== "string") {
         setImageContextMenu((current) =>
           current
             ? {
                 ...current,
                 isUploading: false,
-                error:
-                  typeof payload.error === "string"
-                    ? payload.error
-                    : "Nao foi possivel enviar a imagem.",
+                isDragOver: false,
+                error: "Selecione novamente a imagem com o botao direito.",
               }
             : current,
         );
         return;
       }
 
-      setImageComponentSrc(editor, imageComponent, payload.src);
-      closeImageContextMenu();
-      setStatus("Imagem substituida no editor.");
+      if (!isLikelyImageFile(file)) {
+        setImageContextMenu((current) =>
+          current
+            ? {
+                ...current,
+                isUploading: false,
+                isDragOver: false,
+                error: "Envie um arquivo de imagem (PNG, JPG, WEBP ou SVG).",
+              }
+            : current,
+        );
+        return;
+      }
+
+      setImageContextMenu((current) =>
+        current
+          ? { ...current, isUploading: true, isDragOver: false, error: "" }
+          : current,
+      );
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/cms/editor/upload-image", {
+          method: "POST",
+          credentials: "same-origin",
+          body: formData,
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          src?: unknown;
+          error?: unknown;
+        };
+
+        if (!response.ok || typeof payload.src !== "string") {
+          setImageContextMenu((current) =>
+            current
+              ? {
+                  ...current,
+                  isUploading: false,
+                  error:
+                    typeof payload.error === "string"
+                      ? payload.error
+                      : "Nao foi possivel enviar a imagem.",
+                }
+              : current,
+          );
+          return;
+        }
+
+        setImageComponentSrc(editor, imageComponent, payload.src);
+        closeImageContextMenu();
+        setStatus("Imagem substituida no editor.");
+      } catch {
+        setImageContextMenu((current) =>
+          current
+            ? {
+                ...current,
+                isUploading: false,
+                error: "Falha ao enviar a imagem. Tente novamente.",
+              }
+            : current,
+        );
+      }
     },
     [closeImageContextMenu],
   );
@@ -2186,7 +2275,11 @@ export default function LandingEditor({
       });
 
       editorRef.current = editor;
-      setStatus(snapshotSourceHtml ? "Editor pronto com o site original." : "Editor pronto com a versao salva.");
+      setStatus(
+        snapshotSourceHtml
+          ? "Editor pronto com o site de apps/site/dist."
+          : "Editor pronto com a ultima versao salva/publicada.",
+      );
 
       editor.on("destroy", () => {
         window.removeEventListener("message", handleSnapshot);
@@ -2261,6 +2354,41 @@ export default function LandingEditor({
               position: "fixed",
             }}
             onMouseDown={(event) => event.stopPropagation()}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setImageContextMenu((current) =>
+                current && current.mode === "upload"
+                  ? { ...current, isDragOver: true, error: "" }
+                  : current,
+              );
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                return;
+              }
+
+              setImageContextMenu((current) =>
+                current ? { ...current, isDragOver: false } : current,
+              );
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const file = event.dataTransfer.files.item(0);
+
+              if (file) {
+                void replaceContextImage(file);
+              }
+            }}
           >
             {imageContextMenu.mode === "menu" ? (
               <button
@@ -2268,7 +2396,9 @@ export default function LandingEditor({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-white/90 hover:bg-white/10"
                 onClick={() =>
                   setImageContextMenu((current) =>
-                    current ? { ...current, mode: "upload", error: "" } : current,
+                    current
+                      ? { ...current, mode: "upload", isDragOver: false, error: "" }
+                      : current,
                   )
                 }
               >
@@ -2278,32 +2408,31 @@ export default function LandingEditor({
             ) : (
               <div className="grid gap-3 p-3">
                 <label
-                  className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-white/30 bg-white/6 px-4 py-5 text-center text-xs font-semibold text-white/76 transition hover:border-[#f9d600] hover:bg-white/10"
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "copy";
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const file = event.dataTransfer.files.item(0);
-
-                    if (file) {
-                      void replaceContextImage(file);
-                    }
-                  }}
+                  className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-4 py-5 text-center text-xs font-semibold transition ${
+                    imageContextMenu.isDragOver
+                      ? "border-[#f9d600] bg-[#f9d600]/12 text-white"
+                      : "border-white/30 bg-white/6 text-white/76 hover:border-[#f9d600] hover:bg-white/10"
+                  }`}
                 >
                   <span className="fa fa-cloud-upload mb-2 text-lg text-[#f9d600]" aria-hidden="true" />
-                  Arraste uma imagem aqui ou clique para escolher
+                  {imageContextMenu.isUploading
+                    ? "Enviando imagem..."
+                    : imageContextMenu.isDragOver
+                      ? "Solte para substituir a imagem"
+                      : "Arraste uma imagem aqui ou clique para escolher"}
                   <input
                     className="sr-only"
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.png,.jpg,.jpeg,.webp,.svg,.gif,.avif"
+                    disabled={imageContextMenu.isUploading}
                     onChange={(event) => {
                       const file = event.currentTarget.files?.item(0);
 
                       if (file) {
                         void replaceContextImage(file);
                       }
+
+                      event.currentTarget.value = "";
                     }}
                   />
                 </label>
@@ -2316,7 +2445,9 @@ export default function LandingEditor({
                     className="rounded-md px-3 py-1.5 text-xs font-semibold text-white/64 hover:bg-white/10 hover:text-white"
                     onClick={() =>
                       setImageContextMenu((current) =>
-                        current ? { ...current, mode: "menu", error: "" } : current,
+                        current
+                          ? { ...current, mode: "menu", isDragOver: false, error: "" }
+                          : current,
                       )
                     }
                     disabled={imageContextMenu.isUploading}

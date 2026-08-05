@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   deploymentLockPath,
@@ -21,6 +21,18 @@ const lockTtlMs = 45 * 60 * 1000;
 
 async function ensureDeploymentDirs() {
   await mkdir(deploymentRecordsDir, { recursive: true });
+}
+
+async function writeJsonAtomic(filePath: string, value: unknown) {
+  const directory = path.dirname(filePath);
+  await mkdir(directory, { recursive: true });
+  const tempPath = path.join(
+    directory,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+
+  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tempPath, filePath);
 }
 
 export function createInitialDeploymentRecord({
@@ -56,11 +68,11 @@ export function createInitialDeploymentRecord({
 
 export async function saveDeploymentRecord(record: DeploymentRecord) {
   await ensureDeploymentDirs();
-  await writeFile(
-    path.join(deploymentRecordsDir, `${record.id}.json`),
-    `${JSON.stringify(record, null, 2)}\n`,
-    "utf8",
-  );
+  const filePath = path.join(deploymentRecordsDir, `${record.id}.json`);
+  // #region agent log
+  fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:saveDeploymentRecord',message:'atomic write deployment record',data:{deploymentId:record.id,status:record.status,filesUploaded:record.filesUploaded},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  await writeJsonAtomic(filePath, record);
 }
 
 export async function getDeploymentRecord(deploymentId: string) {
@@ -70,8 +82,18 @@ export async function getDeploymentRecord(deploymentId: string) {
       "utf8",
     );
 
-    return JSON.parse(payload) as DeploymentRecord;
-  } catch {
+    try {
+      return JSON.parse(payload) as DeploymentRecord;
+    } catch (parseError) {
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:getDeploymentRecord',message:'JSON.parse failed in getDeploymentRecord',data:{deploymentId,payloadLength:payload.length,payloadPreview:payload.slice(0,80),error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return null;
+    }
+  } catch (readError) {
+    // #region agent log
+    fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'A',location:'deployment-store.ts:getDeploymentRecord:read',message:'readFile failed in getDeploymentRecord',data:{deploymentId,error:readError instanceof Error ? readError.message : String(readError)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     return null;
   }
 }
@@ -79,15 +101,32 @@ export async function getDeploymentRecord(deploymentId: string) {
 export async function listDeploymentRecords() {
   await ensureDeploymentDirs();
   const entries = await readdir(deploymentRecordsDir, { withFileTypes: true });
-  const records = await Promise.all(
+  const namedPayloads = await Promise.all(
     entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => readFile(path.join(deploymentRecordsDir, entry.name), "utf8")),
+      .filter(
+        (entry) =>
+          entry.isFile() && entry.name.endsWith(".json") && !entry.name.endsWith(".tmp"),
+      )
+      .map(async (entry) => ({
+        name: entry.name,
+        payload: await readFile(path.join(deploymentRecordsDir, entry.name), "utf8"),
+      })),
   );
 
-  return records
-    .map((payload) => JSON.parse(payload) as DeploymentRecord)
-    .sort((first, second) => second.startedAt.localeCompare(first.startedAt));
+  const records: DeploymentRecord[] = [];
+
+  for (const { name, payload } of namedPayloads) {
+    try {
+      records.push(JSON.parse(payload) as DeploymentRecord);
+    } catch (parseError) {
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'post-fix',hypothesisId:'B',location:'deployment-store.ts:listDeploymentRecords',message:'JSON.parse failed in listDeploymentRecords',data:{name,payloadLength:payload.length,payloadPreview:payload.slice(0,80),error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      // Skip corrupt/empty records (can appear briefly with non-atomic writers; atomic writes prevent this).
+    }
+  }
+
+  return records.sort((first, second) => second.startedAt.localeCompare(first.startedAt));
 }
 
 export async function updateDeploymentRecord(
@@ -189,7 +228,15 @@ export async function finishDeploymentRecord({
 
 async function readCurrentLock() {
   try {
-    return JSON.parse(await readFile(deploymentLockPath, "utf8")) as LockFile;
+    const payload = await readFile(deploymentLockPath, "utf8");
+    try {
+      return JSON.parse(payload) as LockFile;
+    } catch (parseError) {
+      // #region agent log
+      fetch('http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5f9fdc'},body:JSON.stringify({sessionId:'5f9fdc',runId:'pre-fix',hypothesisId:'C',location:'deployment-store.ts:readCurrentLock',message:'lock JSON.parse failed',data:{payloadLength:payload.length,error:parseError instanceof Error ? parseError.message : String(parseError)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return null;
+    }
   } catch {
     return null;
   }

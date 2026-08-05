@@ -93,9 +93,9 @@ function LoginScreen({ hasError }: { hasError: boolean }) {
 
 function Dashboard({ origin }: { origin: string }) {
   const projectLinks = [
-    { label: "Site", value: `${origin}/site-dist/index.html` },
+    { label: "Site", value: `${origin}/` },
     { label: "CMS", value: `${origin}/cms` },
-    { label: "Preview sincronizado", value: `${origin}/site-dist/index.html` },
+    { label: "Preview sincronizado", value: `${origin}/` },
     { label: "Exportacao", value: `${origin}/exports/cbdas-site.zip` },
   ];
 
