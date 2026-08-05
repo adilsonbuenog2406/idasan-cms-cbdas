@@ -284,6 +284,38 @@ export default async function EditorPage() {
     snapshotSourceHtml: snapshotFromDist,
   });
 
+  // #region agent log
+  {
+    const html = initialState.initialHtml;
+    const heroMatch = html.match(/src="([^"]*heroasset[^"]*)"/i);
+    fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "5f9fdc",
+      },
+      body: JSON.stringify({
+        sessionId: "5f9fdc",
+        runId: "pre-fix",
+        hypothesisId: "A",
+        location: "editor-page.tsx:EditorPage",
+        message: "editor initial state resolved",
+        data: {
+          hasSavedProject: Boolean(savedProject),
+          htmlLen: html.length,
+          cssLen: initialState.initialCss.length,
+          startsWithBody: html.trim().toLowerCase().startsWith("<body"),
+          endsWithBody: html.trim().toLowerCase().endsWith("</body>"),
+          heroSrc: heroMatch?.[1] ?? null,
+          siteCssHref: assets.cssHref,
+          snapshotSkipped: !initialState.snapshotSourceHtml,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
+
   return (
     <LandingEditor
       initialHtml={initialState.initialHtml}

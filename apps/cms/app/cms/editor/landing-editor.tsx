@@ -2042,6 +2042,32 @@ export default function LandingEditor({
         return;
       }
 
+      // #region agent log
+      fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "5f9fdc",
+        },
+        body: JSON.stringify({
+          sessionId: "5f9fdc",
+          runId: "pre-fix",
+          hypothesisId: "A",
+          location: "landing-editor.tsx:loadEditor:beforeInit",
+          message: "about to init grapes with initialHtml",
+          data: {
+            htmlLen: initialHtml.length,
+            startsWithBody: initialHtml.trim().toLowerCase().startsWith("<body"),
+            siteCssHref,
+            snapshotSourceHtmlLen: snapshotSourceHtml.length,
+            heroSrcInInitial:
+              initialHtml.match(/src="([^"]*heroasset[^"]*)"/i)?.[1] ?? null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+
       const editor = grapesjs.init({
         container: containerRef.current,
         height: "100%",
@@ -2071,9 +2097,93 @@ export default function LandingEditor({
       registerPanelistCardEditing(editor);
       registerDevicePreviewCommands(editor);
       registerDeleteComponentCommand(editor);
-      editor.on("canvas:load", () => installImageContextMenuRef.current(editor));
+      const auditCanvasImages = (phase: string) => {
+        // #region agent log
+        try {
+          const frame = editor.Canvas.getFrameEl?.() as HTMLIFrameElement | undefined;
+          const doc = editor.Canvas.getDocument?.();
+          const win = editor.Canvas.getWindow?.();
+          const imgs = doc ? Array.from(doc.querySelectorAll("img")) : [];
+          const hero = imgs.find((img) =>
+            (img.getAttribute("src") || img.currentSrc || "").includes("heroasset"),
+          );
+          const broken = imgs
+            .filter((img) => img.complete && img.naturalWidth === 0)
+            .slice(0, 12)
+            .map((img) => ({
+              src: img.getAttribute("src"),
+              currentSrc: img.currentSrc,
+              alt: img.alt,
+            }));
+          const nestedBodies = doc ? doc.querySelectorAll("body body").length : -1;
+          fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Debug-Session-Id": "5f9fdc",
+            },
+            body: JSON.stringify({
+              sessionId: "5f9fdc",
+              runId: "pre-fix",
+              hypothesisId: "B",
+              location: `landing-editor.tsx:auditCanvasImages:${phase}`,
+              message: "canvas image audit",
+              data: {
+                phase,
+                frameSrc: frame?.getAttribute("src"),
+                baseURI: doc?.baseURI ?? null,
+                locationHref: win?.location?.href ?? null,
+                imgCount: imgs.length,
+                brokenCount: imgs.filter((img) => img.complete && img.naturalWidth === 0)
+                  .length,
+                nestedBodies,
+                bodyChildTag: doc?.body?.firstElementChild?.tagName ?? null,
+                hero: hero
+                  ? {
+                      src: hero.getAttribute("src"),
+                      currentSrc: hero.currentSrc,
+                      complete: hero.complete,
+                      naturalWidth: hero.naturalWidth,
+                      naturalHeight: hero.naturalHeight,
+                    }
+                  : null,
+                brokenSample: broken,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        } catch (error) {
+          fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Debug-Session-Id": "5f9fdc",
+            },
+            body: JSON.stringify({
+              sessionId: "5f9fdc",
+              runId: "pre-fix",
+              hypothesisId: "B",
+              location: `landing-editor.tsx:auditCanvasImages:${phase}:error`,
+              message: "canvas audit failed",
+              data: {
+                phase,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        }
+        // #endregion
+      };
+      editor.on("canvas:load", () => {
+        installImageContextMenuRef.current(editor);
+        auditCanvasImages("canvas:load");
+      });
       editor.setComponents(initialHtml);
       editor.setStyle(initialCss);
+      auditCanvasImages("after-setComponents");
+      window.setTimeout(() => auditCanvasImages("poll+500ms"), 500);
+      window.setTimeout(() => auditCanvasImages("poll+2000ms"), 2000);
       configureProgramScheduleComponents(editor);
       configureHeaderMenuComponents(editor);
       configureSpeakerComponents(editor);
