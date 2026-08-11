@@ -163,25 +163,13 @@ export default function PublishPanel({ initialDeployments }: PublishPanelProps) 
     }).catch(() => {});
   }
 
-  async function pollDeployment(deploymentId: string) {
-    const response = await fetch(`/api/cms/publish/${deploymentId}`, { cache: "no-store" });
-
-    if (!response.ok) {
-      return;
-    }
-
-    const payload = (await response.json()) as { deployment?: DeploymentRecord };
-
-    if (!payload.deployment) {
-      return;
-    }
-
+  async function applyDeploymentSnapshot(deployment: DeploymentRecord) {
     setDeployments((currentDeployments) => {
       const withoutCurrent = currentDeployments.filter(
-        (deployment) => deployment.id !== payload.deployment?.id,
+        (currentDeployment) => currentDeployment.id !== deployment.id,
       );
 
-      return [payload.deployment as DeploymentRecord, ...withoutCurrent].sort((first, second) =>
+      return [deployment, ...withoutCurrent].sort((first, second) =>
         second.startedAt.localeCompare(first.startedAt),
       );
     });
@@ -209,14 +197,7 @@ export default function PublishPanel({ initialDeployments }: PublishPanelProps) 
       setIsConfirming(false);
 
       if (payload.deployment) {
-        setDeployments((currentDeployments) =>
-          [
-            payload.deployment as DeploymentRecord,
-            ...currentDeployments.filter(
-              (deployment) => deployment.id !== payload.deployment?.id,
-            ),
-          ].sort((first, second) => second.startedAt.localeCompare(first.startedAt)),
-        );
+        await applyDeploymentSnapshot(payload.deployment);
       } else {
         await refreshHistory();
       }
@@ -263,11 +244,52 @@ export default function PublishPanel({ initialDeployments }: PublishPanelProps) 
       return undefined;
     }
 
-    const interval = window.setInterval(() => {
-      void pollDeployment(activeDeploymentId);
-    }, 2500);
+    let cancelled = false;
+    let startedSeq = 0;
+    let appliedSeq = 0;
+    let intervalId = 0;
 
-    return () => window.clearInterval(interval);
+    const pollDeployment = async () => {
+      const pollSeq = ++startedSeq;
+
+      try {
+        const response = await fetch(`/api/cms/publish/${activeDeploymentId}`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok || cancelled || pollSeq < appliedSeq) {
+          return;
+        }
+
+        const payload = (await response.json()) as { deployment?: DeploymentRecord };
+
+        if (!payload.deployment || cancelled || pollSeq < appliedSeq) {
+          return;
+        }
+
+        appliedSeq = pollSeq;
+        await applyDeploymentSnapshot(payload.deployment);
+
+        if (!activeStatuses.has(payload.deployment.status) && intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = 0;
+        }
+      } catch {
+        // Keep polling until the effect is cleared.
+      }
+    };
+
+    void pollDeployment();
+    intervalId = window.setInterval(() => {
+      void pollDeployment();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
   }, [activeDeploymentId]);
 
   return (

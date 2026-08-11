@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "CBDAS CMS",
   description: "Painel de gestao do site III CBDAS",
+  icons: {
+    icon: [{ url: "/icon.webp", type: "image/webp" }],
+    shortcut: "/icon.webp",
+    apple: "/icon.webp",
+  },
 };
 
 export default function RootLayout({

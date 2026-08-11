@@ -584,19 +584,629 @@ function getComponentForElement(editor: Editor, element: Element) {
   return getEditorComponents(editor).find((component) => getComponentViewElement(component) === element);
 }
 
-function getImageElementFromContextTarget(target: HTMLElement) {
-  const canvasBody = target.ownerDocument.body;
-  let current: HTMLElement | null = target;
+const textBlockTags = new Set([
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "BLOCKQUOTE",
+  "FIGCAPTION",
+  "TD",
+  "TH",
+  "BUTTON",
+  "LABEL",
+  "ADDRESS",
+  "PRE",
+  "DT",
+  "DD",
+  "LEGEND",
+  "SUMMARY",
+]);
 
-  while (current && current !== canvasBody) {
-    if (current instanceof HTMLImageElement) {
-      return current;
-    }
+const textInlineTags = new Set([
+  "SPAN",
+  "A",
+  "STRONG",
+  "EM",
+  "B",
+  "I",
+  "U",
+  "SMALL",
+  "CITE",
+  "TIME",
+  "Q",
+  "ABBR",
+  "MARK",
+  "CODE",
+]);
 
-    const image = current.querySelector("img");
+function isImageComponent(component: Component) {
+  return component.get("type") === "image" || component.get("tagName") === "img";
+}
+
+function isBlockingTextElement(element: HTMLElement) {
+  if (!textBlockTags.has(element.tagName) && !textInlineTags.has(element.tagName)) {
+    return false;
+  }
+
+  return (element.textContent ?? "").trim().length > 0;
+}
+
+function getImageElementFromContextTarget(target: HTMLElement, clientX?: number, clientY?: number) {
+  if (target instanceof HTMLImageElement) {
+    return target;
+  }
+
+  const closestImage = target.closest("img");
+
+  if (closestImage instanceof HTMLImageElement) {
+    return closestImage;
+  }
+
+  if (target.tagName === "PICTURE" || target.tagName === "FIGURE") {
+    const image = target.querySelector("img");
 
     if (image instanceof HTMLImageElement) {
       return image;
+    }
+  }
+
+  if (typeof clientX === "number" && typeof clientY === "number") {
+    const stack = target.ownerDocument.elementsFromPoint(clientX, clientY);
+
+    for (const element of stack) {
+      if (element instanceof HTMLImageElement) {
+        return element;
+      }
+
+      if (element instanceof HTMLElement && isBlockingTextElement(element)) {
+        return null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findComponentByElement(editor: Editor, element: Element) {
+  return getEditorComponents(editor).find((component) => {
+    const viewElement = getComponentViewElement(component);
+    const domElement = component.getEl();
+
+    return viewElement === element || domElement === element;
+  });
+}
+
+function getImageComponentFromElement(editor: Editor, imageElement: HTMLImageElement) {
+  const wrapper = editor.getWrapper();
+  const matchedImage = wrapper
+    ?.find("img")
+    .find((component) => (component.getEl() ?? getComponentViewElement(component)) === imageElement);
+
+  if (matchedImage) {
+    return matchedImage;
+  }
+
+  const exact = findComponentByElement(editor, imageElement);
+
+  if (exact) {
+    return exact;
+  }
+
+  let current: HTMLElement | null = imageElement.parentElement;
+
+  while (current && current !== imageElement.ownerDocument.body) {
+    const parent = findComponentByElement(editor, current);
+
+    if (parent) {
+      const nestedImage = parent.find("*").find((child) => {
+        const childElement = child.getEl() ?? getComponentViewElement(child);
+
+        return childElement === imageElement || (isImageComponent(child) && childElement?.contains(imageElement));
+      });
+
+      if (nestedImage) {
+        return nestedImage;
+      }
+
+      return parent;
+    }
+
+    current = current.parentElement;
+  }
+
+  return undefined;
+}
+
+function getImageComponentFromContextTarget(
+  editor: Editor,
+  target: HTMLElement,
+  event?: MouseEvent,
+) {
+  const imageElement = getImageElementFromContextTarget(target, event?.clientX, event?.clientY);
+
+  return imageElement ? getImageComponentFromElement(editor, imageElement) : undefined;
+}
+
+const imageResizableOptions = {
+  tl: 1,
+  tr: 1,
+  bl: 1,
+  br: 1,
+  tc: 0,
+  bc: 0,
+  cl: 1,
+  cr: 1,
+  keyWidth: "width",
+  keyHeight: "height",
+  ratioDefault: true,
+};
+
+function persistImageSize(imageComponent: Component, widthPx: number, heightPx: number) {
+  const width = Math.max(24, Math.round(widthPx));
+  const height = Math.max(24, Math.round(heightPx));
+
+  imageComponent.addStyle({
+    width: `${width}px`,
+    height: `${height}px`,
+    "max-width": "none",
+  });
+  imageComponent.addAttributes({
+    width: String(width),
+    height: String(height),
+  });
+}
+
+function applyClickedImageSize(
+  imageComponent: Component,
+  element: HTMLElement,
+  widthPx: number,
+  heightPx: number,
+) {
+  const width = Math.max(24, Math.round(widthPx));
+  const height = Math.max(24, Math.round(heightPx));
+
+  element.style.width = `${width}px`;
+  element.style.height = `${height}px`;
+  element.style.maxWidth = "none";
+
+  if (element instanceof HTMLImageElement) {
+    element.setAttribute("width", String(width));
+    element.setAttribute("height", String(height));
+  }
+
+  const componentElement = imageComponent.getEl() ?? getComponentViewElement(imageComponent);
+
+  if (isImageComponent(imageComponent) || componentElement === element) {
+    persistImageSize(imageComponent, width, height);
+  }
+}
+
+type ActiveImageEdit = {
+  editor: Editor;
+  component: Component;
+  image: HTMLImageElement;
+};
+
+type ActiveImagePan = {
+  image: HTMLImageElement;
+  component: Component;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  mode: "object-position" | "translate";
+};
+
+let activeImageEdit: ActiveImageEdit | null = null;
+let activeImagePan: ActiveImagePan | null = null;
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isResizerHandle(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(".gjs-resizer-h, .gjs-resizer"));
+}
+
+function parsePositionPercent(value: string | undefined, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  if (value === "left" || value === "top") {
+    return 0;
+  }
+
+  if (value === "right" || value === "bottom") {
+    return 100;
+  }
+
+  if (value === "center") {
+    return 50;
+  }
+
+  const numeric = Number.parseFloat(value);
+
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function getImageObjectPosition(image: HTMLImageElement) {
+  const position = (image.style.objectPosition || image.ownerDocument.defaultView?.getComputedStyle(image).objectPosition || "50% 50%")
+    .trim()
+    .split(/\s+/);
+
+  return {
+    x: parsePositionPercent(position[0], 50),
+    y: parsePositionPercent(position[1] ?? position[0], 50),
+  };
+}
+
+function getImageTranslate(image: HTMLImageElement) {
+  const inline = /translate3?d?\(([-\d.]+)px,\s*([-\d.]+)px/i.exec(image.style.transform);
+
+  if (inline) {
+    return { x: Number(inline[1]), y: Number(inline[2]) };
+  }
+
+  const computed = image.ownerDocument.defaultView?.getComputedStyle(image).transform;
+
+  if (computed && computed !== "none") {
+    const matrix = new DOMMatrix(computed);
+
+    return { x: matrix.m41, y: matrix.m42 };
+  }
+
+  return { x: 0, y: 0 };
+}
+
+function usesObjectPositionPan(image: HTMLImageElement) {
+  const objectFit = image.ownerDocument.defaultView?.getComputedStyle(image).objectFit ?? "";
+
+  return objectFit === "cover" || objectFit === "contain";
+}
+
+function persistImageObjectPosition(
+  imageComponent: Component,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+) {
+  const nextX = clampNumber(x, 0, 100);
+  const nextY = clampNumber(y, 0, 100);
+  const value = `${Number(nextX.toFixed(1))}% ${Number(nextY.toFixed(1))}%`;
+
+  image.style.objectPosition = value;
+
+  if (isImageComponent(imageComponent) || imageComponent.getEl() === image) {
+    imageComponent.addStyle({ "object-position": value });
+  }
+
+  return { x: nextX, y: nextY };
+}
+
+function persistImageTranslate(
+  imageComponent: Component,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+) {
+  const container = image.parentElement;
+  const imageWidth = image.offsetWidth;
+  const imageHeight = image.offsetHeight;
+  const containerWidth = container?.clientWidth ?? imageWidth;
+  const containerHeight = container?.clientHeight ?? imageHeight;
+  const minX = imageWidth >= containerWidth ? containerWidth - imageWidth : 0;
+  const maxX = imageWidth >= containerWidth ? 0 : containerWidth - imageWidth;
+  const minY = imageHeight >= containerHeight ? containerHeight - imageHeight : 0;
+  const maxY = imageHeight >= containerHeight ? 0 : containerHeight - imageHeight;
+  const nextX = clampNumber(x, minX, maxX);
+  const nextY = clampNumber(y, minY, maxY);
+  const value = `translate(${Math.round(nextX)}px, ${Math.round(nextY)}px)`;
+
+  image.style.transform = value;
+
+  if (isImageComponent(imageComponent) || imageComponent.getEl() === image) {
+    imageComponent.addStyle({ transform: value });
+  }
+
+  return { x: nextX, y: nextY };
+}
+
+function prepareImageMoveContainer(image: HTMLImageElement) {
+  const container = image.parentElement;
+
+  if (!container) {
+    return;
+  }
+
+  const style = image.ownerDocument.defaultView?.getComputedStyle(container);
+
+  if (style?.overflow === "visible") {
+    container.style.overflow = "hidden";
+  }
+
+  if (style?.position === "static") {
+    container.style.position = "relative";
+  }
+}
+
+function deactivateImageEditMode() {
+  if (activeImagePan) {
+    try {
+      activeImagePan.image.releasePointerCapture(activeImagePan.pointerId);
+    } catch {
+      // The pointer may already have been released.
+    }
+
+    activeImagePan.image.style.cursor = "grab";
+    activeImagePan = null;
+  }
+
+  if (activeImageEdit) {
+    activeImageEdit.image.style.cursor = "";
+    activeImageEdit.image.removeAttribute("data-cbdas-image-move");
+    activeImageEdit = null;
+  }
+}
+
+function activateImageEditMode(
+  editor: Editor,
+  imageComponent: Component,
+  image: HTMLImageElement,
+) {
+  deactivateImageEditMode();
+  image.setAttribute("draggable", "false");
+  image.setAttribute("data-cbdas-image-move", "true");
+  image.style.cursor = "grab";
+  prepareImageMoveContainer(image);
+  imageComponent.set({
+    draggable: false,
+    selectable: true,
+    hoverable: true,
+  });
+  activeImageEdit = {
+    editor,
+    component: imageComponent,
+    image,
+  };
+}
+
+function beginImagePan(event: PointerEvent, imageComponent: Component, image: HTMLImageElement) {
+  const mode = usesObjectPositionPan(image) ? "object-position" : "translate";
+  const origin = mode === "object-position" ? getImageObjectPosition(image) : getImageTranslate(image);
+
+  if (mode === "translate") {
+    prepareImageMoveContainer(image);
+  }
+
+  image.style.cursor = "grabbing";
+  image.setPointerCapture(event.pointerId);
+  activeImagePan = {
+    image,
+    component: imageComponent,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: origin.x,
+    originY: origin.y,
+    mode,
+  };
+}
+
+function moveActiveImagePan(event: PointerEvent) {
+  if (!activeImagePan || event.pointerId !== activeImagePan.pointerId) {
+    return;
+  }
+
+  const deltaX = event.clientX - activeImagePan.startX;
+  const deltaY = event.clientY - activeImagePan.startY;
+
+  if (activeImagePan.mode === "object-position") {
+    const width = Math.max(activeImagePan.image.clientWidth, 1);
+    const height = Math.max(activeImagePan.image.clientHeight, 1);
+
+    persistImageObjectPosition(
+      activeImagePan.component,
+      activeImagePan.image,
+      activeImagePan.originX - (deltaX / width) * 100,
+      activeImagePan.originY - (deltaY / height) * 100,
+    );
+    return;
+  }
+
+  persistImageTranslate(
+    activeImagePan.component,
+    activeImagePan.image,
+    activeImagePan.originX + deltaX,
+    activeImagePan.originY + deltaY,
+  );
+}
+
+function endActiveImagePan(event: PointerEvent) {
+  if (!activeImagePan || event.pointerId !== activeImagePan.pointerId) {
+    return;
+  }
+
+  const { component, image, mode } = activeImagePan;
+
+  try {
+    image.releasePointerCapture(event.pointerId);
+  } catch {
+    // The pointer may already have been released.
+  }
+
+  image.style.cursor = "grab";
+  activeImagePan = null;
+
+  const panelist = component.closest(panelistCardSelector);
+
+  if (panelist && mode === "object-position" && panelist.getAttributes()["data-speaker-card"] !== undefined) {
+    const position = getImageObjectPosition(image);
+
+    panelist.set({
+      panelistObjectX: `${Number(position.x.toFixed(1))}%`,
+      panelistObjectY: `${Number(position.y.toFixed(1))}%`,
+    });
+  }
+}
+
+function beginImageResize(
+  editor: Editor,
+  imageComponent: Component,
+  clickedImage?: HTMLImageElement | null,
+) {
+  const viewElement = imageComponent.getEl() ?? getComponentViewElement(imageComponent);
+  const imageElement =
+    clickedImage ??
+    (viewElement instanceof HTMLImageElement
+      ? viewElement
+      : viewElement?.querySelector("img") ?? null);
+
+  if (isImageComponent(imageComponent)) {
+    imageComponent.set({
+      resizable: imageResizableOptions,
+      selectable: true,
+      hoverable: true,
+    });
+    editor.select(imageComponent);
+  }
+
+  if (imageElement instanceof HTMLImageElement) {
+    const rect = imageElement.getBoundingClientRect();
+
+    if (rect.width > 0 && rect.height > 0) {
+      applyClickedImageSize(imageComponent, imageElement, rect.width, rect.height);
+    }
+  }
+
+  if (editor.Commands.isActive("resize")) {
+    editor.stopCommand("resize");
+  }
+
+  editor.runCommand("resize", {
+    component: imageComponent,
+    el: imageElement ?? viewElement ?? undefined,
+    force: true,
+    ...imageResizableOptions,
+    updateTarget: (element, rect) => {
+      applyClickedImageSize(imageComponent, element, rect.w, rect.h);
+    },
+  });
+
+  if (imageElement instanceof HTMLImageElement) {
+    activateImageEditMode(editor, imageComponent, imageElement);
+  }
+}
+
+function configureResizableImages(editor: Editor) {
+  for (const component of getEditorComponents(editor)) {
+    if (isImageComponent(component)) {
+      component.set({
+        resizable: imageResizableOptions,
+        selectable: true,
+        hoverable: true,
+      });
+    }
+  }
+}
+
+function registerImageResizeEditing(editor: Editor) {
+  editor.on("canvas:load", () => configureResizableImages(editor));
+  editor.on("component:add", (component: Component) => {
+    if (isImageComponent(component)) {
+      component.set({
+        resizable: imageResizableOptions,
+        selectable: true,
+        hoverable: true,
+      });
+    }
+  });
+  editor.on("component:resize", () => {
+    const selected = editor.getSelected();
+
+    if (!selected || !isImageComponent(selected)) {
+      return;
+    }
+
+    const style = selected.getStyle();
+    const width = Number.parseFloat(String(style.width ?? ""));
+    const height = Number.parseFloat(String(style.height ?? ""));
+
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      persistImageSize(selected, width, height);
+    }
+  });
+}
+
+function isTextLikeElement(element: HTMLElement) {
+  if (textBlockTags.has(element.tagName) || textInlineTags.has(element.tagName)) {
+    return true;
+  }
+
+  return (
+    (element.tagName === "DIV" || element.tagName === "SECTION") &&
+    element.childElementCount === 0 &&
+    (element.textContent ?? "").trim().length > 0
+  );
+}
+
+function isTextComponent(component: Component) {
+  const type = String(component.get("type") ?? "");
+  const tagName = String(component.get("tagName") ?? "").toUpperCase();
+
+  return (
+    type === "text" ||
+    type === "textnode" ||
+    type === "link" ||
+    textBlockTags.has(tagName) ||
+    textInlineTags.has(tagName)
+  );
+}
+
+function getTextElementFromTarget(target: HTMLElement) {
+  const canvasBody = target.ownerDocument.body;
+  let current: HTMLElement | null = target;
+  let inlineMatch: HTMLElement | null = null;
+
+  while (current && current !== canvasBody) {
+    if (current instanceof HTMLImageElement || current.tagName === "SVG") {
+      return null;
+    }
+
+    if (textBlockTags.has(current.tagName)) {
+      return current;
+    }
+
+    if (!inlineMatch && isTextLikeElement(current)) {
+      inlineMatch = current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return inlineMatch;
+}
+
+function getTextComponentFromTarget(editor: Editor, target: HTMLElement) {
+  const textElement = getTextElementFromTarget(target);
+
+  if (!textElement) {
+    return null;
+  }
+
+  let current: HTMLElement | null = textElement;
+
+  while (current && current !== target.ownerDocument.body) {
+    const component = getComponentForElement(editor, current);
+
+    if (component && !isImageComponent(component)) {
+      return component;
     }
 
     current = current.parentElement;
@@ -605,10 +1215,31 @@ function getImageElementFromContextTarget(target: HTMLElement) {
   return null;
 }
 
-function getImageComponentFromContextTarget(editor: Editor, target: HTMLElement) {
-  const imageElement = getImageElementFromContextTarget(target);
+function beginTextEdit(editor: Editor, textComponent: Component, event?: Event) {
+  textComponent.set({
+    editable: true,
+    selectable: true,
+    hoverable: true,
+  });
+  editor.select(textComponent);
+  textComponent.getView()?.onActive(event);
+}
 
-  return imageElement ? getComponentForElement(editor, imageElement) : undefined;
+function configureEditableText(editor: Editor) {
+  for (const component of getEditorComponents(editor)) {
+    if (isTextComponent(component)) {
+      component.set("editable", true);
+    }
+  }
+}
+
+function registerTextEditing(editor: Editor) {
+  editor.on("canvas:load", () => configureEditableText(editor));
+  editor.on("component:add", (component: Component) => {
+    if (isTextComponent(component)) {
+      component.set("editable", true);
+    }
+  });
 }
 
 function isLikelyImageFile(file: File) {
@@ -1689,23 +2320,6 @@ function registerPanelistCardEditing(editor: Editor) {
     }
   });
 
-  editor.on("canvas:dblclick", (event: MouseEvent) => {
-    const target = event.target;
-
-    if (!(target instanceof HTMLElement) || !target.matches(".speaker-card__photo")) {
-      return;
-    }
-
-    const card = target.closest<HTMLElement>(panelistCardSelector);
-    const component = getPanelistCards(editor).find(
-      (item) => getComponentViewElement(item) === card,
-    );
-
-    if (component) {
-      event.preventDefault();
-      openPanelistImageAssetManager(editor, component);
-    }
-  });
 }
 
 function registerDevicePreviewCommands(editor: Editor) {
@@ -1832,7 +2446,7 @@ export default function LandingEditor({
           return;
         }
 
-        const imageComponent = getImageComponentFromContextTarget(editor, target);
+        const imageComponent = getImageComponentFromContextTarget(editor, target, event);
 
         if (!imageComponent) {
           return;
@@ -1855,11 +2469,139 @@ export default function LandingEditor({
         });
       };
 
+      const handleCanvasDoubleClick = (event: MouseEvent) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+
+        const clickedImage = getImageElementFromContextTarget(
+          target,
+          event.clientX,
+          event.clientY,
+        );
+        const imageComponent = clickedImage
+          ? getImageComponentFromElement(editor, clickedImage)
+          : undefined;
+
+        if (imageComponent && clickedImage) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          imageContextTargetRef.current = null;
+          setImageContextMenu(null);
+
+          if (activeImageEdit?.image !== clickedImage) {
+            beginImageResize(editor, imageComponent, clickedImage);
+          }
+
+          setStatus(
+            "Segure e arraste a imagem para movê-la dentro do componente. Use as alças para redimensionar.",
+          );
+          return;
+        }
+
+        const textComponent = getTextComponentFromTarget(editor, target);
+
+        if (!textComponent) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        deactivateImageEditMode();
+        beginTextEdit(editor, textComponent, event);
+        setStatus("Texto em edição. Clique fora do campo para concluir.");
+      };
+
+      const handleImagePointerDown = (event: PointerEvent) => {
+        if (event.button !== 0 || isResizerHandle(event.target)) {
+          return;
+        }
+
+        const target = event.target;
+
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+
+        const clickedImage = getImageElementFromContextTarget(
+          target,
+          event.clientX,
+          event.clientY,
+        );
+        const imageComponent = clickedImage
+          ? getImageComponentFromElement(editor, clickedImage)
+          : undefined;
+
+        if (event.detail >= 2 && clickedImage && imageComponent) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          imageContextTargetRef.current = null;
+          setImageContextMenu(null);
+          beginImageResize(editor, imageComponent, clickedImage);
+          beginImagePan(event, imageComponent, clickedImage);
+          setStatus("Solte para fixar a posição da imagem no componente.");
+          return;
+        }
+
+        if (!activeImageEdit || !clickedImage || clickedImage !== activeImageEdit.image) {
+          if (activeImageEdit && clickedImage !== activeImageEdit.image) {
+            deactivateImageEditMode();
+          }
+
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        beginImagePan(event, activeImageEdit.component, clickedImage);
+        setStatus("Solte para fixar a posição da imagem no componente.");
+      };
+
+      const handleImagePointerMove = (event: PointerEvent) => {
+        if (!activeImagePan) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        moveActiveImagePan(event);
+      };
+
+      const handleImagePointerUp = (event: PointerEvent) => {
+        if (!activeImagePan) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        endActiveImagePan(event);
+        setStatus(
+          "Segure e arraste a imagem para movê-la dentro do componente. Use as alças para redimensionar.",
+        );
+      };
+
       canvasDocument.addEventListener("contextmenu", openImageUploadPopup);
-      canvasDocument.addEventListener("dblclick", openImageUploadPopup, true);
+      canvasDocument.addEventListener("dblclick", handleCanvasDoubleClick, true);
+      canvasDocument.addEventListener("pointerdown", handleImagePointerDown, true);
+      canvasDocument.addEventListener("pointermove", handleImagePointerMove, true);
+      canvasDocument.addEventListener("pointerup", handleImagePointerUp, true);
+      canvasDocument.addEventListener("pointercancel", handleImagePointerUp, true);
       imageContextCleanupRef.current = () => {
+        deactivateImageEditMode();
         canvasDocument.removeEventListener("contextmenu", openImageUploadPopup);
-        canvasDocument.removeEventListener("dblclick", openImageUploadPopup, true);
+        canvasDocument.removeEventListener("dblclick", handleCanvasDoubleClick, true);
+        canvasDocument.removeEventListener("pointerdown", handleImagePointerDown, true);
+        canvasDocument.removeEventListener("pointermove", handleImagePointerMove, true);
+        canvasDocument.removeEventListener("pointerup", handleImagePointerUp, true);
+        canvasDocument.removeEventListener("pointercancel", handleImagePointerUp, true);
       };
     },
     [],
@@ -2042,32 +2784,6 @@ export default function LandingEditor({
         return;
       }
 
-      // #region agent log
-      fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "5f9fdc",
-        },
-        body: JSON.stringify({
-          sessionId: "5f9fdc",
-          runId: "pre-fix",
-          hypothesisId: "A",
-          location: "landing-editor.tsx:loadEditor:beforeInit",
-          message: "about to init grapes with initialHtml",
-          data: {
-            htmlLen: initialHtml.length,
-            startsWithBody: initialHtml.trim().toLowerCase().startsWith("<body"),
-            siteCssHref,
-            snapshotSourceHtmlLen: snapshotSourceHtml.length,
-            heroSrcInInitial:
-              initialHtml.match(/src="([^"]*heroasset[^"]*)"/i)?.[1] ?? null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-
       const editor = grapesjs.init({
         container: containerRef.current,
         height: "100%",
@@ -2095,95 +2811,15 @@ export default function LandingEditor({
       registerProgramScheduleEditing(editor);
       registerSpeakerCardEditing(editor);
       registerPanelistCardEditing(editor);
+      registerImageResizeEditing(editor);
+      registerTextEditing(editor);
       registerDevicePreviewCommands(editor);
       registerDeleteComponentCommand(editor);
-      const auditCanvasImages = (phase: string) => {
-        // #region agent log
-        try {
-          const frame = editor.Canvas.getFrameEl?.() as HTMLIFrameElement | undefined;
-          const doc = editor.Canvas.getDocument?.();
-          const win = editor.Canvas.getWindow?.();
-          const imgs = doc ? Array.from(doc.querySelectorAll("img")) : [];
-          const hero = imgs.find((img) =>
-            (img.getAttribute("src") || img.currentSrc || "").includes("heroasset"),
-          );
-          const broken = imgs
-            .filter((img) => img.complete && img.naturalWidth === 0)
-            .slice(0, 12)
-            .map((img) => ({
-              src: img.getAttribute("src"),
-              currentSrc: img.currentSrc,
-              alt: img.alt,
-            }));
-          const nestedBodies = doc ? doc.querySelectorAll("body body").length : -1;
-          fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Debug-Session-Id": "5f9fdc",
-            },
-            body: JSON.stringify({
-              sessionId: "5f9fdc",
-              runId: "pre-fix",
-              hypothesisId: "B",
-              location: `landing-editor.tsx:auditCanvasImages:${phase}`,
-              message: "canvas image audit",
-              data: {
-                phase,
-                frameSrc: frame?.getAttribute("src"),
-                baseURI: doc?.baseURI ?? null,
-                locationHref: win?.location?.href ?? null,
-                imgCount: imgs.length,
-                brokenCount: imgs.filter((img) => img.complete && img.naturalWidth === 0)
-                  .length,
-                nestedBodies,
-                bodyChildTag: doc?.body?.firstElementChild?.tagName ?? null,
-                hero: hero
-                  ? {
-                      src: hero.getAttribute("src"),
-                      currentSrc: hero.currentSrc,
-                      complete: hero.complete,
-                      naturalWidth: hero.naturalWidth,
-                      naturalHeight: hero.naturalHeight,
-                    }
-                  : null,
-                brokenSample: broken,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-        } catch (error) {
-          fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Debug-Session-Id": "5f9fdc",
-            },
-            body: JSON.stringify({
-              sessionId: "5f9fdc",
-              runId: "pre-fix",
-              hypothesisId: "B",
-              location: `landing-editor.tsx:auditCanvasImages:${phase}:error`,
-              message: "canvas audit failed",
-              data: {
-                phase,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-        }
-        // #endregion
-      };
       editor.on("canvas:load", () => {
         installImageContextMenuRef.current(editor);
-        auditCanvasImages("canvas:load");
       });
       editor.setComponents(initialHtml);
       editor.setStyle(initialCss);
-      auditCanvasImages("after-setComponents");
-      window.setTimeout(() => auditCanvasImages("poll+500ms"), 500);
-      window.setTimeout(() => auditCanvasImages("poll+2000ms"), 2000);
       configureProgramScheduleComponents(editor);
       configureHeaderMenuComponents(editor);
       configureSpeakerComponents(editor);

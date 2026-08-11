@@ -374,30 +374,11 @@ async function handlePublicSiteGet() {
   }
 }
 
-async function handleUploadGet(segments: string[], request?: Request) {
+async function handleUploadGet(segments: string[]) {
   const requestedPath = segments.join("/");
 
   try {
     const asset = await readUploadedAsset(requestedPath);
-
-    // #region agent log
-    fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "5f9fdc",
-      },
-      body: JSON.stringify({
-        sessionId: "5f9fdc",
-        runId: "pre-fix",
-        hypothesisId: "D",
-        location: "route.ts:handleUploadGet:ok",
-        message: "upload asset served",
-        data: { requestedPath, bytes: asset.body.byteLength, contentType: asset.contentType },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
 
     return new Response(asset.body, {
       headers: {
@@ -405,48 +386,7 @@ async function handleUploadGet(segments: string[], request?: Request) {
         "content-type": asset.contentType,
       },
     });
-  } catch (error) {
-    // #region agent log
-    const supabaseConfigured = Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
-    );
-    fetch("http://127.0.0.1:7615/ingest/e1503208-6096-42e6-82f7-77583d7d4b9e", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "5f9fdc",
-      },
-      body: JSON.stringify({
-        sessionId: "5f9fdc",
-        runId: "pre-fix",
-        hypothesisId: "D",
-        location: "route.ts:handleUploadGet:error",
-        message: "upload asset failed",
-        data: {
-          requestedPath,
-          supabaseConfigured,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
-    const wantsDebug =
-      request != null && new URL(request.url).searchParams.get("dbg") === "1";
-
-    if (wantsDebug) {
-      return Response.json(
-        {
-          error: "Not found",
-          requestedPath,
-          supabaseConfigured,
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        { status: 404 },
-      );
-    }
-
+  } catch {
     return new Response("Not found", { status: 404 });
   }
 }
@@ -472,7 +412,7 @@ export async function GET(_request: Request, context: ApiRouteContext) {
   }
 
   if (segments[0] === "uploads") {
-    return handleUploadGet(segments.slice(1), _request);
+    return handleUploadGet(segments.slice(1));
   }
 
   return new Response("Not found", { status: 404 });
