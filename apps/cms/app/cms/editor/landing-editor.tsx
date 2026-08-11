@@ -733,14 +733,14 @@ function getImageComponentFromContextTarget(
 }
 
 const imageResizableOptions = {
-  tl: 1,
-  tr: 1,
-  bl: 1,
-  br: 1,
-  tc: 0,
-  bc: 0,
-  cl: 1,
-  cr: 1,
+  tl: true,
+  tr: true,
+  bl: true,
+  br: true,
+  tc: false,
+  bc: false,
+  cl: true,
+  cr: true,
   keyWidth: "width",
   keyHeight: "height",
   ratioDefault: true,
@@ -1228,7 +1228,7 @@ function beginTextEdit(editor: Editor, textComponent: Component, event?: Event) 
 function configureEditableText(editor: Editor) {
   for (const component of getEditorComponents(editor)) {
     if (isTextComponent(component)) {
-      component.set("editable", true);
+      component.set({ editable: true });
     }
   }
 }
@@ -1237,7 +1237,7 @@ function registerTextEditing(editor: Editor) {
   editor.on("canvas:load", () => configureEditableText(editor));
   editor.on("component:add", (component: Component) => {
     if (isTextComponent(component)) {
-      component.set("editable", true);
+      component.set({ editable: true });
     }
   });
 }
@@ -1979,14 +1979,14 @@ function hydratePanelistCardComponent(component: Component) {
       getPanelistCardClassValue(component, panelistWidthClasses, "speaker-card--width-auto"),
     ),
     resizable: {
-      tl: 1,
-      tr: 1,
-      bl: 1,
-      br: 1,
-      tc: 0,
-      bc: 0,
-      cl: 1,
-      cr: 1,
+      tl: true,
+      tr: true,
+      bl: true,
+      br: true,
+      tc: false,
+      bc: false,
+      cl: true,
+      cr: true,
       keyWidth: "width",
       keyHeight: "height",
     },
@@ -2184,14 +2184,14 @@ function registerPanelistCardEditing(editor: Editor) {
         panelistImagePosition: "speaker-card--image-left",
         panelistWidth: "speaker-card--width-auto",
         resizable: {
-          tl: 1,
-          tr: 1,
-          bl: 1,
-          br: 1,
-          tc: 0,
-          bc: 0,
-          cl: 1,
-          cr: 1,
+          tl: true,
+          tr: true,
+          bl: true,
+          br: true,
+          tc: false,
+          bc: false,
+          cl: true,
+          cr: true,
           keyWidth: "width",
           keyHeight: "height",
         },
